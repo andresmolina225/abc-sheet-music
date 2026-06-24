@@ -5,8 +5,8 @@ Local web app for Jerry Coker-style practice patterns. Converts ABC notation to 
 ## Quick start
 
 ```bash
-git clone <your-repo-url>
-cd abc-sheet-music   # or proj
+git clone https://github.com/andresmolina225/abc-sheet-music.git
+cd abc-sheet-music
 python3 app.py
 ```
 

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>ABC Sheet Music</title>
-  <!-- Local abcjs clone — NOT a CDN -->
+  <!-- Local abcjs — serve via python3 app.py (never CDN) -->
   <script src="abcjs/dist/abcjs-basic.js"></script>
   <link rel="stylesheet" href="abcjs/abcjs-audio.css">
   <style>
@@ -14,110 +14,159 @@
       --editor-muted: #565f89;
       --editor-border: #292e42;
       --paper-bg: #faf7f2;
-      --toolbar-bg: #16161e;
+      --toolbar-bg: #13141c;
       --toolbar-fg: #a9b1d6;
       --accent: #e0af68;
       --accent-hover: #f5c97a;
-      --accent-dim: rgba(224, 175, 104, 0.18);
+      --accent-dim: rgba(224, 175, 104, 0.16);
       --danger: #f7768e;
       --success: #9ece6a;
       --radius: 8px;
-      --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.35);
+      --shadow: 0 2px 8px rgba(0, 0, 0, 0.35);
       --font-ui: system-ui, -apple-system, sans-serif;
       --font-mono: "SF Mono", Menlo, Consolas, monospace;
     }
     * { box-sizing: border-box; margin: 0; padding: 0; }
-    html, body { height: 100%; overflow: hidden; font-family: var(--font-ui); background: var(--toolbar-bg); color: var(--toolbar-fg); }
+    html, body {
+      height: 100%; overflow: hidden;
+      font-family: var(--font-ui);
+      background: var(--toolbar-bg);
+      color: var(--toolbar-fg);
+    }
     .app { display: grid; grid-template-rows: auto auto 1fr auto; height: 100vh; }
 
+    /* ── Toolbar ── */
     .toolbar {
-      display: flex; align-items: center; gap: 0.5rem; flex-wrap: wrap;
-      padding: 0.7rem 1rem; background: var(--toolbar-bg);
-      border-bottom: 1px solid var(--editor-border); box-shadow: var(--shadow-sm);
+      display: flex; align-items: center; gap: 0.55rem; flex-wrap: wrap;
+      padding: 0.75rem 1.1rem;
+      background: linear-gradient(180deg, #1a1b28 0%, var(--toolbar-bg) 100%);
+      border-bottom: 1px solid var(--editor-border);
+      box-shadow: var(--shadow);
     }
-    .brand { display: flex; align-items: center; gap: 0.55rem; flex-shrink: 0; }
+    .brand { display: flex; align-items: center; gap: 0.6rem; flex-shrink: 0; }
     .brand-icon {
-      width: 34px; height: 34px; border-radius: var(--radius);
-      background: linear-gradient(145deg, var(--accent), #bb9af7);
-      display: grid; place-items: center; font-size: 16px; box-shadow: var(--shadow-sm);
+      width: 36px; height: 36px; border-radius: var(--radius);
+      background: linear-gradient(145deg, var(--accent), #9d7cd8);
+      display: grid; place-items: center; font-size: 17px;
+      box-shadow: var(--shadow);
     }
-    .brand h1 { font-size: 0.96rem; font-weight: 600; color: #dce0f0; }
-    .brand .tagline { font-size: 0.65rem; color: var(--editor-muted); }
+    .brand h1 { font-size: 1rem; font-weight: 600; color: #e8eaf6; letter-spacing: -0.02em; }
+    .brand .tagline { font-size: 0.66rem; color: var(--editor-muted); margin-top: 1px; }
 
     .toolbar-group {
-      display: flex; align-items: center; gap: 0.4rem; flex-wrap: wrap;
-      padding: 0.25rem 0.6rem; border-left: 1px solid var(--editor-border);
+      display: flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;
+      padding: 0.3rem 0.65rem;
+      border-left: 1px solid var(--editor-border);
     }
     .toolbar-group:first-of-type { border-left: none; }
-    .toolbar-label { font-size: 0.7rem; font-weight: 600; color: var(--editor-muted); }
+    .toolbar-label {
+      font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+      letter-spacing: 0.07em; color: var(--editor-muted);
+    }
 
     button, select {
-      font: inherit; font-size: 0.78rem; border: 1px solid var(--editor-border);
-      background: #24283b; color: var(--toolbar-fg); border-radius: 6px;
-      padding: 0.4rem 0.75rem; cursor: pointer; box-shadow: var(--shadow-sm);
+      font: inherit; font-size: 0.79rem;
+      border: 1px solid var(--editor-border);
+      background: #24283b; color: var(--toolbar-fg);
+      border-radius: 7px; padding: 0.42rem 0.8rem;
+      cursor: pointer; transition: border-color 0.15s, color 0.15s, background 0.15s;
+      box-shadow: 0 1px 2px rgba(0,0,0,0.25);
     }
     button:hover, select:hover { border-color: var(--accent); color: var(--accent-hover); }
-    button.primary { background: linear-gradient(180deg, var(--accent-hover), var(--accent)); color: #1a1b26; font-weight: 600; border-color: var(--accent); }
-    button.play-btn { background: #2d4a3e; border-color: #3d6b55; color: var(--success); font-weight: 600; }
-    #instrument-select { min-width: 12rem; background: #2a3050; font-weight: 500; }
-
+    button:active { transform: translateY(1px); }
+    button.primary {
+      background: linear-gradient(180deg, #f5c97a, var(--accent));
+      color: #1a1b26; font-weight: 700; border-color: var(--accent);
+    }
+    button.play-btn {
+      background: linear-gradient(180deg, #3d6b55, #2d4a3e);
+      border-color: #4a8a6a; color: #c8ffd4; font-weight: 700;
+    }
+    #instrument-select {
+      min-width: 13rem; font-weight: 500;
+      background: linear-gradient(180deg, #2e3558, #252b48);
+      border-color: #3d4a72;
+    }
     label.toggle {
-      display: flex; align-items: center; gap: 0.35rem; font-size: 0.78rem;
-      border: 1px solid var(--editor-border); background: #24283b; border-radius: 6px; padding: 0.4rem 0.6rem;
+      display: flex; align-items: center; gap: 0.4rem; font-size: 0.79rem;
+      border: 1px solid var(--editor-border); background: #24283b;
+      border-radius: 7px; padding: 0.42rem 0.65rem; cursor: pointer;
     }
     label.toggle input { accent-color: var(--accent); }
     input[type="file"] { display: none; }
 
+    /* ── Synth bar ── */
     .synth-bar {
-      display: flex; align-items: center; gap: 0.65rem; flex-wrap: wrap;
-      padding: 0.5rem 1rem; background: #1e2030; border-bottom: 1px solid var(--editor-border);
+      display: flex; align-items: center; gap: 0.7rem; flex-wrap: wrap;
+      padding: 0.55rem 1.1rem; background: #1c1e2e;
+      border-bottom: 1px solid var(--editor-border);
     }
     .synth-bar .hint { font-size: 0.72rem; color: var(--editor-muted); }
-    #audio { flex: 1; min-width: 12rem; max-width: 28rem; }
-    #paper svg .highlight { fill: #3d8bfd; opacity: 0.35; }
+    #audio { flex: 1; min-width: 14rem; max-width: 30rem; }
+    #audio .abcjs-inline-audio { border-radius: 7px; width: 100%; }
 
+    /* ── Workspace ── */
     .workspace {
-      display: grid; grid-template-columns: minmax(260px, 36%) 5px 1fr;
+      display: grid; grid-template-columns: minmax(270px, 37%) 5px 1fr;
       min-height: 0; overflow: hidden;
     }
     @media (max-width: 768px) {
-      .workspace { grid-template-columns: 1fr; grid-template-rows: 38vh 1fr; }
+      .workspace { grid-template-columns: 1fr; grid-template-rows: 40vh 1fr; }
       .divider { display: none; }
+      .toolbar-group { border-left: none; padding-left: 0; }
     }
 
-    .editor-pane { display: flex; flex-direction: column; background: var(--editor-bg); min-height: 0; }
-    .pane-header {
-      padding: 0.55rem 0.9rem; font-size: 0.68rem; text-transform: uppercase;
-      letter-spacing: 0.08em; color: var(--editor-muted); border-bottom: 1px solid var(--editor-border);
-      display: flex; justify-content: space-between; align-items: center; font-weight: 600;
+    .editor-pane {
+      display: flex; flex-direction: column; background: var(--editor-bg);
+      min-height: 0; box-shadow: inset -3px 0 16px rgba(0,0,0,0.25);
     }
-    .pane-header .badge { font-size: 0.62rem; background: var(--accent-dim); color: var(--accent); padding: 0.15rem 0.45rem; border-radius: 4px; text-transform: none; }
+    .pane-header {
+      padding: 0.6rem 1rem; font-size: 0.68rem; text-transform: uppercase;
+      letter-spacing: 0.09em; color: var(--editor-muted);
+      border-bottom: 1px solid var(--editor-border); font-weight: 700;
+      display: flex; justify-content: space-between; align-items: center;
+    }
+    .pane-header .badge {
+      font-size: 0.63rem; background: var(--accent-dim); color: var(--accent);
+      padding: 0.18rem 0.5rem; border-radius: 5px; text-transform: none; letter-spacing: 0;
+    }
     #abc {
       flex: 1; width: 100%; min-height: 0; resize: none; border: none; outline: none;
-      background: var(--editor-bg); color: var(--editor-fg); font-family: var(--font-mono);
-      font-size: 0.78rem; line-height: 1.6; padding: 0.9rem 1rem;
+      background: var(--editor-bg); color: var(--editor-fg);
+      font-family: var(--font-mono); font-size: 0.79rem; line-height: 1.62;
+      padding: 1rem 1.05rem; tab-size: 2;
     }
     #warnings {
       font-family: var(--font-mono); font-size: 0.72rem; color: var(--danger);
-      padding: 0.55rem 1rem; border-top: 1px solid var(--editor-border);
-      white-space: pre-wrap; max-height: 5.5rem; overflow-y: auto;
+      padding: 0.6rem 1rem; border-top: 1px solid var(--editor-border);
+      white-space: pre-wrap; max-height: 6rem; overflow-y: auto;
+      background: rgba(247, 118, 142, 0.07);
     }
     #warnings:empty { display: none; }
 
     .divider { background: var(--editor-border); cursor: col-resize; }
     .divider:hover { background: var(--accent); }
-    .score-pane { background: var(--paper-bg); overflow: auto; min-height: 0; box-shadow: inset 6px 0 28px rgba(26,27,38,0.12); }
-    #paper { padding: 1.75rem 2rem 3rem; min-height: 100%; }
-    .empty-state { min-height: 16rem; display: grid; place-items: center; color: #8a8278; text-align: center; padding: 2rem; }
+    .score-pane {
+      background: var(--paper-bg); overflow: auto; min-height: 0;
+      box-shadow: inset 8px 0 32px rgba(26, 27, 38, 0.1);
+    }
+    #paper { padding: 2rem 2.25rem 3.5rem; min-height: 100%; }
+    #paper svg .highlight { fill: #3d8bfd; opacity: 0.38; }
+    #paper svg .abcjs-cursor { stroke: var(--accent); stroke-width: 2.5; }
+    .empty-state {
+      min-height: 18rem; display: grid; place-items: center;
+      color: #8a8278; text-align: center; padding: 2rem; line-height: 1.65;
+    }
 
     .status {
-      display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.75rem;
-      padding: 0.42rem 1rem; font-size: 0.72rem; color: var(--editor-muted);
+      display: grid; grid-template-columns: 1fr auto 1fr; align-items: center; gap: 0.8rem;
+      padding: 0.45rem 1.1rem; font-size: 0.73rem; color: var(--editor-muted);
       background: var(--toolbar-bg); border-top: 1px solid var(--editor-border);
     }
-    .status .title { color: var(--accent); text-align: center; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-    .status .instrument-info { text-align: right; color: var(--success); font-weight: 500; }
+    .status .title { color: var(--accent); text-align: center; font-weight: 500; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .status .instrument-info { text-align: right; color: var(--success); font-weight: 600; }
     .status a { color: inherit; text-decoration: none; }
+    .status a:hover { color: var(--accent); }
 
     @media print {
       .no-print { display: none !important; }
@@ -135,51 +184,53 @@
         <div class="brand-icon">♫</div>
         <div>
           <h1>ABC Sheet Music</h1>
-          <div class="tagline">Jerry Coker · local abcjs</div>
+          <div class="tagline">Jerry Coker patterns</div>
         </div>
       </div>
 
       <div class="toolbar-group">
-        <span class="toolbar-label">Instrument</span>
-        <select id="instrument-select">
+        <span class="toolbar-label">🎷 Instrument</span>
+        <select id="instrument-select" title="Written pitch for your horn">
           <option value="tenor" selected>Tenor Sax (Bb)</option>
           <option value="alto">Alto Sax (Eb)</option>
           <option value="bb">Bb Clarinet / Trumpet</option>
           <option value="concert">Concert Pitch</option>
         </select>
-        <button type="button" id="gen-coker-btn">✨ Gen Coker</button>
+        <button type="button" id="gen-coker-btn" title="Full chromatic cycle with clean key signatures">✨ Gen Coker</button>
       </div>
 
       <div class="toolbar-group">
-        <button type="button" class="play-btn" id="play-btn">▶ Play</button>
-        <button type="button" class="primary" id="render-btn">Render</button>
-        <label class="toggle"><input type="checkbox" id="auto-render" checked> Live</label>
-        <select id="measures-per-line">
-          <option value="1" selected>1 meas/line</option>
-          <option value="2">2 meas/line</option>
-          <option value="4">4 meas/line</option>
+        <button type="button" class="play-btn" id="play-btn" title="Play rendered tune">▶ Play</button>
+        <button type="button" class="primary" id="render-btn">🎼 Render</button>
+        <label class="toggle" title="Auto-update score while typing">
+          <input type="checkbox" id="auto-render" checked> Live
+        </label>
+        <select id="measures-per-line" title="Measures per staff line">
+          <option value="1" selected>1 / line</option>
+          <option value="2">2 / line</option>
+          <option value="4">4 / line</option>
         </select>
       </div>
 
       <div class="toolbar-group">
         <select id="examples">
-          <option value="">Examples…</option>
+          <option value="">📂 Examples…</option>
           <option value="coker">Coker cycle</option>
           <option value="cooleys">Cooley's Reel</option>
           <option value="blank">Blank</option>
         </select>
-        <button type="button" id="open-btn">📂 Open</button>
+        <button type="button" id="open-btn" title="Open .abc file">📂</button>
         <input type="file" id="file-input" accept=".abc,.txt,text/plain">
-        <button type="button" id="save-btn">💾 Save</button>
-        <button type="button" id="export-btn">HTML</button>
-        <button type="button" id="print-btn">Print</button>
+        <button type="button" id="save-btn" title="Download .abc">💾</button>
+        <button type="button" id="export-btn">📄 HTML</button>
+        <button type="button" id="print-btn">🖨 Print</button>
       </div>
     </header>
 
     <div class="synth-bar no-print">
-      <span class="toolbar-label">Playback</span>
+      <span class="toolbar-label">🔊 Playback</span>
       <div id="audio"></div>
-      <span class="hint" id="synth-hint">Render first, then Play (concert pitch)</span>
+      <span class="hint">Concert-pitch audio · Render first</span>
     </div>
 
     <main class="workspace">
@@ -188,207 +239,216 @@
           <span>ABC notation</span>
           <span class="badge" id="pitch-badge">Written · Tenor Sax</span>
         </div>
-        <textarea id="abc" spellcheck="false"></textarea>
+        <textarea id="abc" spellcheck="false" placeholder="Paste ABC or click Gen Coker…"></textarea>
         <div id="warnings"></div>
       </aside>
-      <div class="divider no-print" id="divider"></div>
+      <div class="divider no-print" id="divider" title="Drag to resize"></div>
       <section class="score-pane"><div id="paper"></div></section>
     </main>
 
     <footer class="status no-print">
-      <span id="lib-status">abcjs local</span>
+      <span id="lib-status">abcjs</span>
       <span class="title" id="tune-title">—</span>
-      <span class="instrument-info" id="instrument-status">Tenor Sax</span>
+      <span class="instrument-info" id="instrument-status">—</span>
     </footer>
   </div>
 
   <script>
-    // ── Guard: must load local abcjs ──────────────────────────────────────────
+    /* ═══════════════════════════════════════════════════════════════════════════
+       ABC Sheet Music — Coker pattern engine
+       Uses local abcjs: ABCJS.renderAbc, ABCJS.strTranspose, ABCJS.parseOnly, synth
+       ═══════════════════════════════════════════════════════════════════════════ */
+
     if (typeof ABCJS === "undefined") {
       document.body.innerHTML =
-        "<p style='padding:2rem;font-family:sans-serif'>Failed to load local abcjs.<br>" +
-        "Run <code>python3 app.py</code> from the proj folder and open /app.html</p>";
+        "<p style='padding:2rem;font-family:sans-serif;line-height:1.6'>" +
+        "<b>abcjs failed to load.</b><br>Run from the project folder:<br>" +
+        "<code>python3 app.py</code><br>Then open <code>/app.html</code> (not file://).</p>";
       throw new Error("abcjs not loaded");
     }
 
-    /**
-     * Transposing instruments — written pitch offset from concert (semitones).
-     * Tenor/Alto/Bb horns: concert pitch sounds M2/m3 lower than written,
-     * so written = concert transposed UP by these amounts.
-     * Tenor also gets +12 (major 9th = octave + M2) then −10 to land in range
-     * → net +2, which is the standard Bb transposition.
-     */
+    // ── Instrument definitions ────────────────────────────────────────────────
+    // Written pitch = concert + N semitones (Bb horn = +2, Eb alto = +3).
+    // baseShift: start template in lower register so transposed notes stay
+    //            in comfortable tenor/alto range.
     const INSTRUMENTS = {
       tenor: {
         label: "Tenor Sax (Bb)",
         short: "Tenor Sax",
-        // Major 9th above concert = +14; pull down octave for tenor register → net +2
-        writtenSteps: 14,
-        octaveSteps: -12,
+        writtenSteps: 2,
+        baseShift: 0,
       },
       alto: {
         label: "Alto Sax (Eb)",
         short: "Alto Sax",
-        writtenSteps: 4,   // Eb alto: written m3 above concert
-        octaveSteps: 0,
+        writtenSteps: 3,
+        baseShift: 0,
       },
       bb: {
         label: "Bb Clarinet / Trumpet",
         short: "Bb",
         writtenSteps: 2,
-        octaveSteps: 0,
+        baseShift: 0,
       },
       concert: {
         label: "Concert Pitch",
         short: "Concert",
         writtenSteps: 0,
-        octaveSteps: 0,
+        baseShift: 0,
       },
     };
 
     const DEFAULT_INSTRUMENT = "tenor";
 
-    const CHROMATIC_KEYS = [
-      "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B", "C"
+    const CHROMATIC_LABELS = [
+      "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B", "C (8va)"
     ];
 
     /**
-     * One-bar Coker template in concert pitch, comfortable register.
-     * L:1/8 → C = eighth, C2 = quarter (2 eighths).
+     * One-bar Jerry Coker template (concert pitch, low/mid register).
      *
-     * Rhythm (4/4):
-     *   Beat 1: (3 C E G      — eighth-note triplet (1 beat)
-     *   Beat 2: (3 c G E      — eighth-note triplet (1 beat)
-     *   Beat 3: C2             — quarter note (1 beat)
-     *   Beat 4: C2             — quarter note (1 beat)
-     * Total = 4 beats.  Do NOT put C2 inside (3…) — that breaks the meter.
+     * L:1/8  →  default note length = eighth
+     *          C   = eighth note
+     *          C2  = quarter note (2 eighths)
+     *          C4  = half note   (4 eighths)
+     *
+     * 4/4 rhythm (4 quarter-note beats):
+     *   Beat 1     : (3 C,E,G,  — ascending triplet  (1 beat)
+     *   Beat 2     : (3 C E G   — descending triplet (1 beat)
+     *   Beats 3–4  : C,4        — half note on root  (2 beats)
+     *
+     * Slashes in (3 C/E/G,) help abcjs beam the triplet cleanly.
+     * NEVER put C2/C4 inside (3…) — that breaks the meter.
      */
     const COKER_BAR_CONCERT = `X:1
 M:4/4
 L:1/8
-Q:1/4=80
+Q:1/4=88
 K:C
-(3 C E G (3 c G E | C2 C2 |`;
+(3 C,E,G, (3 C E G | C,4 |`;
 
-    const STORAGE_KEY = "abc-sheet-v3";
-    const STORAGE_INST = "abc-sheet-inst-v3";
+    const STORAGE_KEY = "abc-sheet-v4";
+    const STORAGE_INST = "abc-sheet-inst-v4";
 
-    const abcEl = document.getElementById("abc");
-    const warningsEl = document.getElementById("warnings");
-    const paperEl = document.getElementById("paper");
-    const titleEl = document.getElementById("tune-title");
-    const statusEl = document.getElementById("instrument-status");
-    const pitchBadgeEl = document.getElementById("pitch-badge");
-    const measuresEl = document.getElementById("measures-per-line");
-    const autoRenderEl = document.getElementById("auto-render");
-    const instrumentEl = document.getElementById("instrument-select");
-    const libStatusEl = document.getElementById("lib-status");
+    // ── DOM ───────────────────────────────────────────────────────────────────
+    const abcEl          = document.getElementById("abc");
+    const warningsEl     = document.getElementById("warnings");
+    const paperEl        = document.getElementById("paper");
+    const titleEl        = document.getElementById("tune-title");
+    const statusEl       = document.getElementById("instrument-status");
+    const pitchBadgeEl   = document.getElementById("pitch-badge");
+    const measuresEl     = document.getElementById("measures-per-line");
+    const autoRenderEl   = document.getElementById("auto-render");
+    const instrumentEl   = document.getElementById("instrument-select");
+    const libStatusEl    = document.getElementById("lib-status");
 
     let renderTimer = null;
-    let lastTunes = null;
-    let concertAbc = null;
+    let lastVisualTunes = null;
     let isCokerTune = true;
     let currentInstrumentId = DEFAULT_INSTRUMENT;
     let synthControl = null;
 
-    // Show local abcjs signature in status bar
-    libStatusEl.textContent = `abcjs ${ABCJS.signature || "local"} · proj/abcjs/dist`;
+    libStatusEl.innerHTML = `abcjs <b>${ABCJS.signature || "?"}</b> · local`;
 
-    // ── Transposition helpers ─────────────────────────────────────────────────
+    // ── Coker engine ──────────────────────────────────────────────────────────
+
+    const CokerEngine = {
+      /** ParseOnly once — reused for every chromatic step */
+      baseTunes: ABCJS.parseOnly(COKER_BAR_CONCERT),
+
+      /** strTranspose wrapper */
+      transpose(abc, steps) {
+        if (!steps) return abc;
+        return ABCJS.strTranspose(abc, ABCJS.parseOnly(abc), steps);
+      },
+
+      /** Pull "Db" from "K:Db" or "K:F#m" */
+      keyToken(abc) {
+        const line = abc.split("\n").find((l) => l.startsWith("K:"));
+        return line ? line.slice(2).trim() : "C";
+      },
+
+      /** Music body after headers (notes only) */
+      barNotes(abc) {
+        const out = [];
+        let pastKey = false;
+        for (const raw of abc.split("\n")) {
+          const line = raw.trim();
+          if (!line) continue;
+          if (line.startsWith("K:")) { pastKey = true; continue; }
+          if (!pastKey) continue;
+          if (/^[A-Z]:/.test(line) || line.startsWith("%%")) continue;
+          out.push(line);
+        }
+        return out.join(" ").replace(/\|+\s*$/, "").trim();
+      },
+
+      /**
+       * One measure line with inline [K:…] key change.
+       * abcjs applies a fresh key signature per measure (no stray naturals).
+       */
+      formatBar(keyToken, notes, isFinal) {
+        const bar = notes.trim() + (isFinal ? " ||" : " |");
+        return `[K:${keyToken}] ${bar}`;
+      },
+
+      /**
+       * Build full chromatic cycle for the selected instrument.
+       * Each bar: chromatic step → instrument transpose → inline [K:…].
+       */
+      generate(instrument) {
+        const inst = instrument || INSTRUMENTS[DEFAULT_INSTRUMENT];
+        const lines = [
+          "X:1",
+          `T:Coker Pattern - Full Cycle (${inst.short})`,
+          "M:4/4",
+          "L:1/8",
+          "Q:1/4=88",
+          "K:C",
+        ];
+
+        for (let step = 0; step <= 12; step++) {
+          // Chromatic transpose from concert C template
+          let bar = this.transpose(COKER_BAR_CONCERT, step);
+
+          // Instrument written-pitch transpose (per bar for clean key sigs)
+          const totalInst = inst.writtenSteps + inst.baseShift;
+          if (totalInst) bar = this.transpose(bar, totalInst);
+
+          const key = this.keyToken(bar);
+          const notes = this.barNotes(bar);
+
+          lines.push(`% ${CHROMATIC_LABELS[step]}`);
+          lines.push(this.formatBar(key, notes, step === 12));
+        }
+
+        return lines.join("\n");
+      },
+    };
+
+    // ── UI helpers ────────────────────────────────────────────────────────────
 
     function getInstrument(id) {
       return INSTRUMENTS[id || instrumentEl.value] || INSTRUMENTS.tenor;
     }
 
-    function instrumentSteps(inst) {
-      return (inst.writtenSteps || 0) + (inst.octaveSteps || 0);
-    }
-
-    function transposeAbc(abc, steps) {
-      if (!steps) return abc;
-      return ABCJS.strTranspose(abc, ABCJS.parseOnly(abc), steps);
-    }
-
-    /** Parse "K:Db" → "Db" for inline [K:Db] modifier */
-    function keyNameFromLine(keyLine) {
-      return (keyLine || "K:C").replace(/^K:\s*/, "").trim();
-    }
-
-    /** Extract note body after the first K: header in a one-bar tune */
-    function extractBarBody(abc) {
-      const parts = [];
-      let seenKey = false;
-      for (const raw of abc.split("\n")) {
-        const line = raw.trim();
-        if (!line) continue;
-        if (line.startsWith("K:")) { seenKey = true; continue; }
-        if (!seenKey) continue;
-        if (/^[A-Z]:/.test(line) || line.startsWith("%%")) continue;
-        parts.push(line);
-      }
-      return parts.join(" ").trim();
-    }
-
-    /**
-     * Build one measure with inline [K:…] key change (abcjs best practice for
-     * clean per-measure key signatures — avoids stray naturals/accidentals).
-     */
-    function formatMeasure(keyLine, body, isLast) {
-      const kn = keyNameFromLine(keyLine);
-      let bar = body.replace(/\|+\s*$/, "").trim();
-      bar += isLast ? " ||" : " |";
-      return `[K:${kn}] ${bar}`;
-    }
-
-    /**
-     * Generate the full chromatic Coker cycle.
-     * Each bar is transposed individually so key signatures stay clean.
-     * Then the instrument offset is applied per bar (not to the whole string at once).
-     */
-    function generateCokerCycle(instrument) {
-      const inst = instrument || getInstrument();
-      const instSteps = instrumentSteps(inst);
-      const baseTunes = ABCJS.parseOnly(COKER_BAR_CONCERT);
-
-      const lines = [
-        "X:1",
-        `T:Coker Pattern - Full Cycle (${inst.short})`,
-        "M:4/4",
-        "L:1/8",
-        "Q:1/4=80",
-        "K:C",
-      ];
-
-      for (let step = 0; step <= 12; step++) {
-        // 1) Chromatic transpose from C template
-        let barAbc = ABCJS.strTranspose(COKER_BAR_CONCERT, baseTunes, step);
-
-        // 2) Instrument written-pitch transpose (per bar, keeps key sigs clean)
-        if (instSteps) {
-          barAbc = ABCJS.strTranspose(barAbc, ABCJS.parseOnly(barAbc), instSteps);
-        }
-
-        const keyLine = barAbc.split("\n").find((l) => l.startsWith("K:")) || "K:C";
-        const body = extractBarBody(barAbc);
-        const label = step === 12 ? `${CHROMATIC_KEYS[step]} (8va)` : CHROMATIC_KEYS[step];
-
-        lines.push(`% ${label}`);
-        lines.push(formatMeasure(keyLine, body, step === 12));
-      }
-
-      return lines.join("\n");
-    }
-
     function updateInstrumentUI(inst) {
-      const net = instrumentSteps(inst);
-      const sign = net > 0 ? "+" : "";
-      pitchBadgeEl.textContent = net === 0 ? "Concert pitch" : `Written · ${inst.short}`;
-      statusEl.textContent = net === 0
+      const n = inst.writtenSteps + inst.baseShift;
+      pitchBadgeEl.textContent = n === 0 ? "Concert pitch" : `Written · ${inst.short}`;
+      statusEl.textContent = n === 0
         ? "Concert · 0 st"
-        : `${inst.short} · ${sign}${net} st (written)`;
+        : `${inst.short} · +${n} st written`;
     }
 
-    // ── Rendering ─────────────────────────────────────────────────────────────
+    function loadCoker() {
+      isCokerTune = true;
+      measuresEl.value = "1";
+      abcEl.value = CokerEngine.generate(getInstrument());
+      updateInstrumentUI(getInstrument());
+      render();
+    }
+
+    // ── Rendering (abcjs renderAbc) ───────────────────────────────────────────
 
     function parseTitle(abc) {
       for (const line of abc.split("\n")) {
@@ -402,15 +462,16 @@ K:C
         responsive: "resize",
         oneSvgPerLine: true,
         add_classes: true,
-        staffwidth: 800,
-        paddingleft: 16,
-        paddingright: 16,
-        stretchlast: 0.05,
+        staffwidth: 820,
+        paddingleft: 18,
+        paddingright: 18,
+        paddingtop: 12,
+        stretchlast: 0.04,
         flatbeams: false,
         wrap: {
           preferredMeasuresPerLine: Number(measuresEl.value),
-          minSpacing: 1.35,
-          maxSpacing: 2.3,
+          minSpacing: 1.32,
+          maxSpacing: 2.25,
           lastLineLimit: 2,
         },
       };
@@ -422,7 +483,7 @@ K:C
       titleEl.textContent = abc ? parseTitle(abc) : "—";
 
       if (!abc) {
-        paperEl.innerHTML = '<div class="empty-state no-print">Click <b>Gen Coker</b> to start</div>';
+        paperEl.innerHTML = '<div class="empty-state no-print">Click <b>✨ Gen Coker</b> to begin</div>';
         return;
       }
 
@@ -430,10 +491,10 @@ K:C
         const visualObjs = ABCJS.renderAbc("paper", abc, renderParams());
         const warnings = [];
         visualObjs.forEach((obj, i) => {
-          (obj.warnings || []).forEach((w) => warnings.push(`Line ${i + 1}: ${w.message}`));
+          (obj.warnings || []).forEach((w) => warnings.push(`Tune ${i + 1}: ${w.message}`));
         });
         warningsEl.textContent = warnings.join("\n");
-        lastTunes = visualObjs;
+        lastVisualTunes = visualObjs;
         loadSynth(visualObjs[0]);
         localStorage.setItem(STORAGE_KEY, abc);
       } catch (err) {
@@ -444,19 +505,42 @@ K:C
     function scheduleRender() {
       if (!autoRenderEl.checked) return;
       clearTimeout(renderTimer);
-      renderTimer = setTimeout(render, 300);
+      renderTimer = setTimeout(render, 280);
     }
 
-    // ── Synth ─────────────────────────────────────────────────────────────────
+    // ── Synth (abcjs SynthController + CreateSynth) ───────────────────────────
+
+    function CursorControl() {
+      this.beatSubdivisions = 2;
+      this.onEvent = (ev) => {
+        if (ev.measureStart && ev.left === null) return;
+        document.querySelectorAll("#paper svg .highlight")
+          .forEach((el) => el.classList.remove("highlight"));
+        ev.elements.forEach((grp) => grp.forEach((el) => el.classList.add("highlight")));
+        const cur = document.querySelector("#paper svg .abcjs-cursor");
+        if (cur && ev.left != null) {
+          cur.setAttribute("x1", ev.left - 2);
+          cur.setAttribute("x2", ev.left - 2);
+          cur.setAttribute("y1", ev.top);
+          cur.setAttribute("y2", ev.top + ev.height);
+        }
+      };
+      this.onFinished = () => {
+        document.querySelectorAll("#paper svg .highlight")
+          .forEach((el) => el.classList.remove("highlight"));
+      };
+    }
+
+    const cursorControl = new CursorControl();
 
     function initSynth() {
       const el = document.getElementById("audio");
       if (!ABCJS.synth.supportsAudio()) {
-        el.innerHTML = '<span style="color:var(--danger)">Audio not supported</span>';
+        el.innerHTML = '<span style="color:var(--danger)">Audio not supported in this browser.</span>';
         return;
       }
       synthControl = new ABCJS.synth.SynthController();
-      synthControl.load("#audio", null, {
+      synthControl.load("#audio", cursorControl, {
         displayPlay: true,
         displayRestart: true,
         displayProgress: true,
@@ -467,25 +551,27 @@ K:C
     function loadSynth(visualObj) {
       if (!synthControl || !visualObj) return;
       synthControl.disable(true);
-      const midiTranspose = -instrumentSteps(getInstrument());
+      const inst = getInstrument();
+      const midiTranspose = -(inst.writtenSteps + inst.baseShift);
       const buf = new ABCJS.synth.CreateSynth();
-      buf.init({ visualObj }).then(() =>
-        synthControl.setTune(visualObj, false, { midiTranspose })
-      ).then(() =>
-        synthControl.disable(false)
-      ).catch((e) => console.warn("Synth:", e));
+      buf.init({ visualObj })
+        .then(() => synthControl.setTune(visualObj, false, { midiTranspose }))
+        .then(() => synthControl.disable(false))
+        .catch((e) => console.warn("Synth:", e));
     }
 
     function triggerPlay() {
-      document.querySelector("#audio .abcjs-midi-start")?.click()
-        || (render(), setTimeout(() => document.querySelector("#audio .abcjs-midi-start")?.click(), 500));
+      const btn = document.querySelector("#audio .abcjs-midi-start");
+      if (btn) { btn.click(); return; }
+      render();
+      setTimeout(() => document.querySelector("#audio .abcjs-midi-start")?.click(), 550);
     }
 
-    // ── I/O ───────────────────────────────────────────────────────────────────
+    // ── File I/O ──────────────────────────────────────────────────────────────
 
     function downloadText(name, text) {
       const a = document.createElement("a");
-      a.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+      a.href = URL.createObjectURL(new Blob([text], { type: "text/plain;charset=utf-8" }));
       a.download = name;
       a.click();
       URL.revokeObjectURL(a.href);
@@ -496,41 +582,32 @@ K:C
       blank: `X:1\nT:Untitled\nM:4/4\nL:1/8\nK:C\nCDEF GABc | c2 z2 z2 z2 |`,
     };
 
-    function loadCoker() {
-      isCokerTune = true;
-      measuresEl.value = "1";
-      concertAbc = null;
-      abcEl.value = generateCokerCycle(getInstrument());
-      updateInstrumentUI(getInstrument());
-      render();
-    }
-
-    function onInstrumentChange() {
-      currentInstrumentId = instrumentEl.value;
-      localStorage.setItem(STORAGE_INST, currentInstrumentId);
-      updateInstrumentUI(getInstrument());
-      if (isCokerTune) loadCoker();
-      else render();
-    }
-
     // ── Events ────────────────────────────────────────────────────────────────
 
     document.getElementById("render-btn").addEventListener("click", render);
     document.getElementById("play-btn").addEventListener("click", triggerPlay);
     document.getElementById("print-btn").addEventListener("click", () => window.print());
+    document.getElementById("gen-coker-btn").addEventListener("click", loadCoker);
     document.getElementById("export-btn").addEventListener("click", () => {
       const abc = abcEl.value.trim();
       if (!abc) return;
-      downloadText("sheet.html", `<!DOCTYPE html><html><head><meta charset=utf-8><script src="abcjs/dist/abcjs-basic.js"><\/script></head><body><div id=p></div><script>ABCJS.renderAbc("p",${JSON.stringify(abc)},{oneSvgPerLine:true,staffwidth:800})<\/script></body></html>`);
+      const title = parseTitle(abc);
+      downloadText(
+        (title.replace(/[^\w.-]+/g, "_") || "sheet") + ".html",
+        `<!DOCTYPE html><html><head><meta charset=utf-8><title>${title}</title>
+<script src="abcjs/dist/abcjs-basic.js"><\/script></head><body>
+<div id=p></div><script>ABCJS.renderAbc("p",${JSON.stringify(abc)},
+{oneSvgPerLine:true,staffwidth:820,wrap:{preferredMeasuresPerLine:1}})<\/script></body></html>`
+      );
     });
-    document.getElementById("gen-coker-btn").addEventListener("click", loadCoker);
     document.getElementById("examples").addEventListener("change", (e) => {
       const k = e.target.value;
       if (k === "coker") loadCoker();
       else if (k) { isCokerTune = false; abcEl.value = EXAMPLES[k]; render(); }
       e.target.value = "";
     });
-    document.getElementById("open-btn").addEventListener("click", () => document.getElementById("file-input").click());
+    document.getElementById("open-btn").addEventListener("click", () =>
+      document.getElementById("file-input").click());
     document.getElementById("file-input").addEventListener("change", (e) => {
       const f = e.target.files[0];
       if (!f) return;
@@ -545,23 +622,29 @@ K:C
     });
     abcEl.addEventListener("input", scheduleRender);
     measuresEl.addEventListener("change", render);
-    instrumentEl.addEventListener("change", onInstrumentChange);
+    instrumentEl.addEventListener("change", () => {
+      currentInstrumentId = instrumentEl.value;
+      localStorage.setItem(STORAGE_INST, currentInstrumentId);
+      updateInstrumentUI(getInstrument());
+      if (isCokerTune) loadCoker();
+      else render();
+    });
 
     (function initDivider() {
       const div = document.getElementById("divider");
       const ws = document.querySelector(".workspace");
       let drag = false;
-      div.addEventListener("mousedown", () => { drag = true; });
-      window.addEventListener("mouseup", () => { drag = false; });
+      div.addEventListener("mousedown", () => { drag = true; document.body.style.cursor = "col-resize"; });
+      window.addEventListener("mouseup", () => { drag = false; document.body.style.cursor = ""; });
       window.addEventListener("mousemove", (e) => {
         if (!drag) return;
         const r = ws.getBoundingClientRect();
-        ws.style.gridTemplateColumns = `${Math.min(72, Math.max(22, ((e.clientX - r.left) / r.width) * 100))}% 5px 1fr`;
+        ws.style.gridTemplateColumns =
+          `${Math.min(72, Math.max(22, ((e.clientX - r.left) / r.width) * 100))}% 5px 1fr`;
       });
     })();
 
     // ── Boot ──────────────────────────────────────────────────────────────────
-
     (function boot() {
       initSynth();
       const savedInst = localStorage.getItem(STORAGE_INST);
@@ -570,7 +653,7 @@ K:C
         currentInstrumentId = savedInst;
       }
       updateInstrumentUI(getInstrument());
-      loadCoker(); // always regenerate — avoids stale broken cache
+      loadCoker();
     })();
   </script>
 </body>
