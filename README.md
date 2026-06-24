@@ -2,10 +2,19 @@
 
 Local web app for Jerry Coker-style practice patterns. Converts ABC notation to sheet music using a vendored [abcjs](https://github.com/paulrosen/abcjs) build — no LLM, no CDN.
 
-## Quick start
+## Quick start (Swift app — recommended)
 
 ```bash
 git clone https://github.com/andresmolina225/abc-sheet-music.git
+cd abc-sheet-music/ABCSheetMusic
+swift run
+```
+
+Native macOS app with SwiftUI UI + bundled abcjs for engraving/playback.
+
+## Web app (legacy)
+
+```bash
 cd abc-sheet-music
 python3 app.py
 ```
@@ -34,8 +43,9 @@ python3 abc2sheet.py coker.abc -o out/coker.html --open
 
 | File | Purpose |
 |------|---------|
-| `app.html` | Main UI |
-| `app.py` | Local server launcher |
+| `ABCSheetMusic/` | **Native SwiftUI macOS app** |
+| `app.html` | Legacy web UI |
+| `app.py` | Web server launcher |
 | `abc2sheet.py` | Headless ABC → HTML converter |
 | `coker.abc` | One-bar concert template |
 | `abcjs/` | Local abcjs library (from paulrosen/abcjs) |
