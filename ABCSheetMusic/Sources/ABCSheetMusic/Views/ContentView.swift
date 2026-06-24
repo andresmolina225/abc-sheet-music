@@ -56,6 +56,9 @@ struct ContentView: View {
                 Label(state.isPlaying ? "Stop" : "Play", systemImage: state.isPlaying ? "stop.fill" : "play.fill")
             }
             .keyboardShortcut(" ", modifiers: [])
+            .help(state.audioSupported
+                  ? "Play (concert pitch · downloads soundfont on first play)"
+                  : "Web Audio unavailable in WebView")
 
             Button("Render") {
                 Task { await state.renderNow() }

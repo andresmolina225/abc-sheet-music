@@ -1,15 +1,29 @@
-/* abcjs bridge — called from Swift via WKWebView.evaluateJavaScript */
+/* abcjs bridge — Swift calls via WKWebView.evaluateJavaScript (serialized) */
 (function () {
   "use strict";
 
+  function postMessage(payload) {
+    try {
+      if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bridge) {
+        window.webkit.messageHandlers.bridge.postMessage(payload);
+      }
+    } catch (e) { /* ignore */ }
+  }
+
+  window.onerror = function (msg, url, line) {
+    postMessage({ type: "jsError", message: String(msg), line: line || 0 });
+    return false;
+  };
+
   if (typeof ABCJS === "undefined") {
-    window.__abcBridgeReady = false;
-    window.__abcBridgeError = "abcjs failed to load";
+    postMessage({ type: "error", message: "abcjs failed to load — check bundle paths" });
     return;
   }
 
-  let synthControl = null;
-  let lastVisualObj = null;
+  var synthControl = null;
+  var lastVisualObj = null;
+  var synthReady = false;
+  var audioSupported = ABCJS.synth.supportsAudio();
 
   function CursorControl() {
     this.beatSubdivisions = 2;
@@ -18,8 +32,8 @@
       document.querySelectorAll("#paper svg .highlight").forEach(function (el) {
         el.classList.remove("highlight");
       });
-      ev.elements.forEach(function (g) {
-        g.forEach(function (el) { el.classList.add("highlight"); });
+      (ev.elements || []).forEach(function (g) {
+        (g || []).forEach(function (el) { el.classList.add("highlight"); });
       });
     };
     this.onFinished = function () {
@@ -31,14 +45,21 @@
   }
 
   function initSynth() {
-    if (!ABCJS.synth.supportsAudio()) return;
-    synthControl = new ABCJS.synth.SynthController();
-    synthControl.load("#audio", new CursorControl(), {
-      displayPlay: false,
-      displayRestart: false,
-      displayProgress: false,
-      displayWarp: false,
-    });
+    if (!audioSupported) {
+      postMessage({ type: "log", message: "Web Audio not supported in this WebView" });
+      return;
+    }
+    try {
+      synthControl = new ABCJS.synth.SynthController();
+      synthControl.load("#audio", new CursorControl(), {
+        displayPlay: false,
+        displayRestart: false,
+        displayProgress: false,
+        displayWarp: false,
+      });
+    } catch (e) {
+      postMessage({ type: "error", message: "Synth init failed: " + e });
+    }
   }
 
   function renderParams(measuresPerLine) {
@@ -63,31 +84,47 @@
   }
 
   function meterWarnings(abc) {
-    var tune = ABCJS.parseOnly(abc)[0];
     var msgs = [];
-    var bar = 0;
-    tune.lines.forEach(function (line) {
-      (line.staff || []).forEach(function (staff) {
-        (staff.voices || []).forEach(function (voice) {
-          var dur = 0;
-          voice.forEach(function (el) {
-            if (typeof el.duration === "number" && el.el_type !== "bar") dur += el.duration;
-            if (el.el_type === "bar") {
-              bar++;
-              if (dur > 0 && Math.abs(dur - 1) > 0.02) {
-                msgs.push("Bar " + bar + ": " + (dur * 4).toFixed(2) + " beats (expected 4.00)");
+    try {
+      var tune = ABCJS.parseOnly(abc)[0];
+      var bar = 0;
+      tune.lines.forEach(function (line) {
+        (line.staff || []).forEach(function (staff) {
+          (staff.voices || []).forEach(function (voice) {
+            var dur = 0;
+            voice.forEach(function (el) {
+              if (typeof el.duration === "number" && el.el_type !== "bar") dur += el.duration;
+              if (el.el_type === "bar") {
+                bar++;
+                if (dur > 0 && Math.abs(dur - 1) > 0.02) {
+                  msgs.push("Bar " + bar + ": " + (dur * 4).toFixed(2) + " beats (expected 4.00)");
+                }
+                dur = 0;
               }
-              dur = 0;
-            }
+            });
           });
         });
       });
-    });
+    } catch (e) {
+      msgs.push("Meter check: " + e);
+    }
     return msgs;
+  }
+
+  function resumeAudioContext() {
+    if (ABCJS.synth.registerAudioContext) {
+      return ABCJS.synth.registerAudioContext();
+    }
+    return Promise.resolve();
   }
 
   window.ABCBridge = {
     signature: ABCJS.signature || "abcjs",
+    audioSupported: audioSupported,
+
+    ping: function () {
+      return { ok: true, signature: ABCJS.signature, audioSupported: audioSupported };
+    },
 
     transpose: function (abc, steps) {
       steps = parseInt(steps, 10) || 0;
@@ -102,6 +139,7 @@
         warnings = warnings.concat(meterWarnings(abc));
         var objs = ABCJS.renderAbc("paper", abc, renderParams(measuresPerLine));
         lastVisualObj = objs[0] || null;
+        synthReady = false;
         objs.forEach(function (o, i) {
           (o.warnings || []).forEach(function (w) {
             warnings.push("Tune " + (i + 1) + ": " + w.message);
@@ -114,40 +152,67 @@
     },
 
     loadSynth: function (midiTranspose, program) {
-      if (!synthControl || !lastVisualObj) return Promise.resolve({ ok: false });
+      if (!audioSupported) {
+        return Promise.resolve({ ok: false, error: "Web Audio unavailable" });
+      }
+      if (!synthControl) {
+        return Promise.resolve({ ok: false, error: "Synth controller not initialized" });
+      }
+      if (!lastVisualObj) {
+        return Promise.resolve({ ok: false, error: "Nothing rendered yet — click Render" });
+      }
+      synthReady = false;
       synthControl.disable(true);
       var opts = { midiTranspose: midiTranspose || 0, program: program || 0 };
-      return new ABCJS.synth.CreateSynth()
-        .init({ visualObj: lastVisualObj, options: opts })
-        .then(function () { return synthControl.setTune(lastVisualObj, false, opts); })
-        .then(function () { synthControl.disable(false); return { ok: true }; })
-        .catch(function (e) { return { ok: false, error: String(e) }; });
+      return resumeAudioContext()
+        .then(function () {
+          return new ABCJS.synth.CreateSynth().init({ visualObj: lastVisualObj, options: opts });
+        })
+        .then(function () {
+          return synthControl.setTune(lastVisualObj, false, opts);
+        })
+        .then(function () {
+          synthControl.disable(false);
+          synthReady = true;
+          return { ok: true };
+        })
+        .catch(function (e) {
+          synthReady = false;
+          return { ok: false, error: String(e && e.message ? e.message : e) };
+        });
     },
 
     play: function () {
-      if (!synthControl) return Promise.resolve({ ok: false });
-      if (ABCJS.synth.registerAudioContext) {
-        return ABCJS.synth.registerAudioContext().then(function () {
-          return synthControl.play();
-        }).then(function () { return { ok: true }; })
-          .catch(function (e) { return { ok: false, error: String(e) }; });
+      if (!audioSupported) {
+        return Promise.resolve({ ok: false, error: "Web Audio unavailable" });
       }
-      return synthControl.play().then(function () { return { ok: true }; });
+      if (!synthControl || !lastVisualObj) {
+        return Promise.resolve({ ok: false, error: "Render first, then Play" });
+      }
+      return resumeAudioContext()
+        .then(function () {
+          if (!synthReady) {
+            return Promise.resolve({ ok: false, error: "Synth not loaded — wait for render" });
+          }
+          return synthControl.play();
+        })
+        .then(function (result) {
+          if (result && result.status === "loading") {
+            return { ok: false, error: "Synth still loading soundfont (needs network)" };
+          }
+          return { ok: true };
+        })
+        .catch(function (e) {
+          return { ok: false, error: String(e && e.message ? e.message : e) };
+        });
     },
 
     stop: function () {
       if (synthControl) synthControl.pause();
+      return { ok: true };
     },
   };
 
   initSynth();
-  window.__abcBridgeReady = true;
-  window.__abcBridgeError = null;
-
-  function postMessage(payload) {
-    if (window.webkit && window.webkit.messageHandlers && window.webkit.messageHandlers.bridge) {
-      window.webkit.messageHandlers.bridge.postMessage(payload);
-    }
-  }
-  postMessage({ type: "ready", signature: ABCJS.signature });
+  postMessage({ type: "ready", signature: ABCJS.signature, audioSupported: audioSupported });
 })();

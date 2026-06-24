@@ -14,6 +14,7 @@ final class AppState: ObservableObject {
     @Published var isCokerTune = true
     @Published var isPlaying = false
     @Published var bridgeSignature = "abcjs…"
+    @Published var audioSupported = false
 
     let bridge = ABCBridge()
 
@@ -34,6 +35,7 @@ final class AppState: ObservableObject {
         do {
             try await bridge.waitUntilReady()
             bridgeSignature = bridge.signature
+            audioSupported = bridge.audioSupported
             if let saved = defaults.string(forKey: abcKey), saved.contains("Coker Pattern") {
                 isCokerTune = true
                 await generateCoker()
@@ -67,16 +69,22 @@ final class AppState: ObservableObject {
         }
         do {
             let result = try await bridge.render(abcText, measuresPerLine: measuresPerLine)
-            warnings = result.warnings
+            var msgs = result.warnings
             if result.hasVisual {
-                try await bridge.loadSynth(
-                    midiTranspose: instrument.midiTranspose,
-                    program: instrument.midiProgram
-                )
+                do {
+                    try await bridge.loadSynth(
+                        midiTranspose: instrument.midiTranspose,
+                        program: instrument.midiProgram
+                    )
+                } catch {
+                    msgs.append("Synth: \(error.localizedDescription)")
+                }
             }
+            msgs.append(contentsOf: bridge.jsErrors)
+            warnings = msgs
             defaults.set(abcText, forKey: abcKey)
         } catch {
-            warnings = [error.localizedDescription]
+            warnings = [error.localizedDescription] + bridge.jsErrors
         }
     }
 
@@ -104,9 +112,14 @@ final class AppState: ObservableObject {
     func play() async {
         isPlaying = true
         do {
+            // Ensure synth is loaded (soundfont fetch needs network on first Play)
+            try await bridge.loadSynth(
+                midiTranspose: instrument.midiTranspose,
+                program: instrument.midiProgram
+            )
             try await bridge.play()
         } catch {
-            warnings = [error.localizedDescription]
+            warnings = [error.localizedDescription] + bridge.jsErrors
             isPlaying = false
         }
     }
