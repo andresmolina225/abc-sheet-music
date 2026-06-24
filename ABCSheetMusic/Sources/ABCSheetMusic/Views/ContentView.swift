@@ -123,8 +123,16 @@ struct ContentView: View {
 
             Divider()
 
-            ABCEditorView(text: $state.abcText, onEdit: { state.userEditedABC() })
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            ZStack {
+                ABCEditorView(text: $state.abcText, onEdit: { state.userEditedABC() })
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+                if state.isBootstrapping {
+                    Color(nsColor: .textBackgroundColor).opacity(0.6)
+                    ProgressView("Loading…")
+                }
+            }
+            .frame(minHeight: 200)
 
             if !state.warnings.isEmpty {
                 Divider()

@@ -16,6 +16,7 @@ final class AppState: ObservableObject {
     @Published var bridgeSignature = "abcjs…"
     @Published var audioSupported = false
     @Published private(set) var bridge: ABCBridge?
+    @Published private(set) var isBootstrapping = true
 
     private var didBootstrap = false
     private var userHasEdited = false
@@ -62,6 +63,7 @@ final class AppState: ObservableObject {
             warnings = [error.localizedDescription] + (bridge.jsErrors)
             BridgeDiagnostics.log("bootstrap failed: \(error)")
         }
+        isBootstrapping = false
     }
 
     func userEditedABC() {
@@ -82,14 +84,14 @@ final class AppState: ObservableObject {
 
     func renderNow() async {
         guard let bridge else { return }
-        abcText = ABCUtilities.fixRhythmBarlines(abcText)
-        title = ABCUtilities.parseTitle(abcText)
-        guard !abcText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let toRender = ABCUtilities.fixRhythmBarlines(abcText)
+        title = ABCUtilities.parseTitle(toRender)
+        guard !toRender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             warnings = []
             return
         }
         do {
-            let result = try await bridge.render(abcText, measuresPerLine: measuresPerLine)
+            let result = try await bridge.render(toRender, measuresPerLine: measuresPerLine)
             var msgs = result.warnings
             msgs.append(contentsOf: bridge.jsErrors)
             warnings = msgs

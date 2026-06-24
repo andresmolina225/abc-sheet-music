@@ -101,7 +101,7 @@ final class ABCBridge: NSObject, ObservableObject {
         }
         schemeHandler = scheme
 
-        let wv = WKWebView(frame: .zero, configuration: config)
+        let wv = NonFocusWebView(frame: .zero, configuration: config)
         webView = wv
         jsQueue = WebViewJSQueue(webView: wv)
 
