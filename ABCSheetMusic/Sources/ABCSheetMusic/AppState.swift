@@ -10,24 +10,20 @@ final class AppState: ObservableObject {
     @Published var instrument: Instrument = .tenor
     @Published var measuresPerLine = 1
     @Published var liveRender = true
-    @Published var isTwelveKeys = false
     @Published var isPlaying = false
     @Published var bridgeSignature = "abcjs…"
     @Published var audioSupported = false
     @Published private(set) var bridge: ABCBridge?
     @Published private(set) var isBootstrapping = true
-    /// Bump to push new text into the editor (12 Keys, open file, etc.).
     @Published private(set) var editorRevision = 0
     private(set) var programmaticEditorText = ""
 
     private var didBootstrap = false
     private var lastConcertABC = ""
-    private var twelveKeysTemplate: String?
-    private var twelveKeysScoreABC: String?
     private var renderTask: Task<Void, Never>?
     private let defaults = UserDefaults.standard
-    private let abcKey = "abc-sheet-swift-abc-v10"
-    private let instKey = "abc-sheet-inst-v10"
+    private let abcKey = "abc-sheet-swift-abc-v11"
+    private let instKey = "abc-sheet-inst-v11"
 
     init() {
         if let raw = defaults.string(forKey: instKey), let inst = Instrument(rawValue: raw) {
@@ -52,11 +48,11 @@ final class AppState: ObservableObject {
             audioSupported = bridge.audioSupported
             if let saved = defaults.string(forKey: abcKey), !saved.isEmpty {
                 let fixed = ABCUtilities.fixRhythmBarlines(saved)
-                pushEditorContent(fixed, editedByUser: true)
+                pushEditorContent(fixed)
                 await renderNow(concertABC: fixed)
             } else {
                 let starter = ABCUtilities.fixRhythmBarlines(ABCUtilities.defaultTestABC)
-                pushEditorContent(starter, editedByUser: false)
+                pushEditorContent(starter)
                 await renderNow(concertABC: starter)
             }
         } catch {
@@ -66,27 +62,23 @@ final class AppState: ObservableObject {
         isBootstrapping = false
     }
 
-    /// Editor text is always concert pitch — instrument transposition applies only to the score.
     func userEdited(concertABC: String) {
         let fixed = ABCUtilities.fixRhythmBarlines(concertABC)
         lastConcertABC = fixed
-        isTwelveKeys = false
-        twelveKeysTemplate = nil
-        twelveKeysScoreABC = nil
-        scheduleRender(concertABC: fixed)
+        if liveRender { scheduleRender(concertABC: fixed) }
     }
 
     func scheduleRender(concertABC: String) {
-        guard liveRender, bridge != nil else { return }
+        guard bridge != nil else { return }
         renderTask?.cancel()
         renderTask = Task {
-            try? await Task.sleep(nanoseconds: 280_000_000)
+            try? await Task.sleep(nanoseconds: 300_000_000)
             guard !Task.isCancelled else { return }
             await renderNow(concertABC: concertABC)
         }
     }
 
-    /// Draw the score on the right. Editor text stays in concert pitch.
+    /// Always renders current editor ABC (transposed for instrument on the score).
     func renderNow(concertABC: String) async {
         guard let bridge else { return }
         let concert = ABCUtilities.fixRhythmBarlines(concertABC)
@@ -97,12 +89,7 @@ final class AppState: ObservableObject {
             return
         }
         do {
-            let toRender: String
-            if isTwelveKeys, let expanded = twelveKeysScoreABC {
-                toRender = expanded
-            } else {
-                toRender = try await scoreABC(from: concert)
-            }
+            let toRender = try await scoreABC(from: concert)
             let result = try await bridge.render(toRender, measuresPerLine: measuresPerLine)
             var msgs = result.warnings
             msgs.append(contentsOf: bridge.jsErrors)
@@ -122,18 +109,15 @@ final class AppState: ObservableObject {
         return out
     }
 
+    /// Add missing chromatic keys using the first bar's pattern; writes result into editor.
     func generate12Keys(from concertABC: String) async {
         guard let bridge else { return }
-        let template = ABCUtilities.fixRhythmBarlines(concertABC)
-        twelveKeysTemplate = template
-        isTwelveKeys = true
         measuresPerLine = 1
-        lastConcertABC = template
         do {
             let gen = Keys12Generator(bridge: bridge)
-            twelveKeysScoreABC = try await gen.generate(from: template, for: instrument)
-            title = "12 Keys (\(instrument.shortName))"
-            await renderNow(concertABC: template)
+            let merged = try await gen.complete(from: concertABC)
+            pushEditorContent(merged)
+            await renderNow(concertABC: merged)
         } catch {
             warnings = [error.localizedDescription]
         }
@@ -141,14 +125,10 @@ final class AppState: ObservableObject {
 
     func instrumentChanged(concertABC: String) async {
         defaults.set(instrument.rawValue, forKey: instKey)
-        if isTwelveKeys, let template = twelveKeysTemplate {
-            await generate12Keys(from: template)
-        } else {
-            await renderNow(concertABC: concertABC)
-        }
+        await renderNow(concertABC: concertABC)
     }
 
-    func pushEditorContent(_ text: String, editedByUser: Bool) {
+    func pushEditorContent(_ text: String) {
         let fixed = ABCUtilities.fixRhythmBarlines(text)
         programmaticEditorText = fixed
         lastConcertABC = fixed
@@ -185,10 +165,7 @@ final class AppState: ObservableObject {
         if panel.runModal() == .OK, let url = panel.url,
            let text = try? String(contentsOf: url, encoding: .utf8) {
             let fixed = ABCUtilities.fixRhythmBarlines(text)
-            isTwelveKeys = false
-            twelveKeysTemplate = nil
-            twelveKeysScoreABC = nil
-            pushEditorContent(fixed, editedByUser: true)
+            pushEditorContent(fixed)
             Task { await renderNow(concertABC: fixed) }
         }
     }

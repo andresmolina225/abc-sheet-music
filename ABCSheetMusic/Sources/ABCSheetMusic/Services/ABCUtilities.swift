@@ -1,5 +1,10 @@
 import Foundation
 
+struct ABCBar: Equatable {
+    let concertKey: String
+    let body: String
+}
+
 enum ABCUtilities {
     static let defaultTestABC = """
         X:1
@@ -10,6 +15,10 @@ enum ABCUtilities {
         K:C
         (3 C E G (3 c G E C4 |
         """
+
+    static let chromaticKeys: [String] = [
+        "C", "Db", "D", "Eb", "E", "F", "Gb", "G", "Ab", "A", "Bb", "B",
+    ]
 
     private static let keySemitones: [String: Int] = [
         "C": 0, "Db": 1, "D": 2, "Eb": 3, "E": 4, "F": 5,
@@ -22,12 +31,99 @@ enum ABCUtilities {
         return (t - f + 12) % 12
     }
 
+    static func normalizeKey(_ key: String) -> String {
+        let k = key.trimmingCharacters(in: .whitespaces)
+        if k.isEmpty || k.lowercased() == "none" { return "C" }
+        return k
+    }
+
     /// First measure body (no barlines) for 12-keys expansion.
     static func firstBarBody(from abc: String) -> String? {
-        let raw = notesFromAbc(abc)
-        guard !raw.isEmpty else { return nil }
-        let bar = raw.components(separatedBy: "|").first?.trimmingCharacters(in: .whitespaces) ?? ""
-        return bar.isEmpty ? nil : bar
+        parseScore(abc).bars.first?.body
+    }
+
+    /// Parse header + concert bars already in the editor.
+    static func parseScore(_ abc: String) -> (header: [String], bars: [ABCBar]) {
+        var header: [String] = []
+        var bars: [ABCBar] = []
+        var currentKey = "C"
+        var sawMusic = false
+
+        for raw in abc.components(separatedBy: .newlines) {
+            let line = raw.trimmingCharacters(in: .whitespaces)
+            if line.isEmpty { continue }
+
+            if let k = keyFromComment(line) {
+                currentKey = k
+                continue
+            }
+            if line.hasPrefix("[K:"), let end = line.firstIndex(of: "]") {
+                currentKey = normalizeKey(String(line[line.index(line.startIndex, offsetBy: 3)..<end]))
+                continue
+            }
+            if line.hasPrefix("K:") {
+                currentKey = normalizeKey(String(line.dropFirst(2)))
+                if !sawMusic { header.append(raw) }
+                continue
+            }
+            if !sawMusic, isHeaderLine(line) {
+                header.append(raw)
+                continue
+            }
+            if isMusicLine(line) {
+                sawMusic = true
+                let cleaned = line
+                    .replacingOccurrences(of: #"^\^"[^"]*"\s*"#, with: "", options: .regularExpression)
+                let parts = cleaned.split(separator: "|", omittingEmptySubsequences: false)
+                for (idx, part) in parts.enumerated() {
+                    let body = String(part).trimmingCharacters(in: .whitespaces)
+                    if body.isEmpty { continue }
+                    bars.append(ABCBar(concertKey: currentKey, body: body))
+                    if idx < parts.count - 1 {
+                        // inline [K:] on same line rare — keep currentKey
+                    }
+                }
+            }
+        }
+        return (header, bars)
+    }
+
+    static func rebuildScore(header: [String], bars: [ABCBar]) -> String {
+        var lines = header
+        if lines.isEmpty {
+            lines = ["X:1", "M:4/4", "L:1/8", "Q:1/4=88", "K:C"]
+        }
+        for (index, bar) in bars.enumerated() {
+            if index > 0 || !lines.contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("K:") }) {
+                lines.append("% \(bar.concertKey)")
+                lines.append("[K:\(bar.concertKey)]")
+            }
+            let end = index == bars.count - 1 ? " ||" : " |"
+            lines.append(bar.body + end)
+        }
+        return fixRhythmBarlines(lines.joined(separator: "\n"))
+    }
+
+    private static func keyFromComment(_ line: String) -> String? {
+        guard line.hasPrefix("%") else { return nil }
+        let body = line.dropFirst().trimmingCharacters(in: .whitespaces)
+        if let open = body.range(of: "(concert "),
+           let close = body[open.upperBound...].firstIndex(of: ")") {
+            return normalizeKey(String(body[open.upperBound..<close]))
+        }
+        let token = body.components(separatedBy: .whitespaces).first ?? ""
+        if chromaticKeys.contains(token) { return token }
+        return nil
+    }
+
+    private static func isHeaderLine(_ line: String) -> Bool {
+        guard let c = line.first, c.isLetter, c.isUppercase else { return false }
+        return line.contains(":") && !line.hasPrefix("%%")
+    }
+
+    private static func isMusicLine(_ line: String) -> Bool {
+        if line.hasPrefix("%") || line.hasPrefix("%%") { return false }
+        return line.contains(where: { "ABCDEFGabcdefg(3".contains($0) })
     }
 
     static func miniAbc(key: String, body: String) -> String {
@@ -35,20 +131,18 @@ enum ABCUtilities {
     }
 
     static func keyFromAbc(_ abc: String) -> String {
+        let parsed = parseScore(abc)
+        if let first = parsed.bars.first { return first.concertKey }
         let inline = abc.components(separatedBy: .newlines)
             .compactMap { line -> String? in
                 let t = line.trimmingCharacters(in: .whitespaces)
                 guard t.hasPrefix("[K:"), let end = t.firstIndex(of: "]") else { return nil }
                 return String(t[t.index(t.startIndex, offsetBy: 3)..<end])
             }
-        if let last = inline.last {
-            let k = last.trimmingCharacters(in: .whitespaces)
-            return k.isEmpty || k.lowercased() == "none" ? "C" : k
-        }
+        if let last = inline.last { return normalizeKey(last) }
         for line in abc.components(separatedBy: .newlines) {
             if line.hasPrefix("K:") {
-                let k = String(line.dropFirst(2)).trimmingCharacters(in: .whitespaces)
-                return k.isEmpty || k.lowercased() == "none" ? "C" : k
+                return normalizeKey(String(line.dropFirst(2)))
             }
         }
         return "C"
@@ -88,7 +182,6 @@ enum ABCUtilities {
         return "Untitled"
     }
 
-    /// Rough written MIDI span for octave fitting (matches web app).
     static func midiRange(_ abc: String) -> (lo: Int, hi: Int)? {
         let scale = [0, 2, 4, 5, 7, 9, 11]
         var body = abc
@@ -134,7 +227,6 @@ enum ABCUtilities {
         return midi
     }
 
-    /// Shift octave so written notes fit the instrument range.
     static func fitWrittenRange(
         _ abc: String,
         range: ClosedRange<Int>?,
@@ -155,13 +247,11 @@ enum ABCUtilities {
         return out
     }
 
-    /// Book-style key label centered above the bar (abcjs annotation).
     static func bookBarLine(keyName: String, body: String) -> String {
         let clean = body.trimmingCharacters(in: .whitespaces)
         return #"^"\#(keyName)" \#(clean)"#
     }
 
-    /// Remove spurious barlines that truncate 4/4 Coker bars to 2 beats.
     static func fixRhythmBarlines(_ abc: String) -> String {
         var out = abc
         let rules: [(String, String)] = [
@@ -177,10 +267,6 @@ enum ABCUtilities {
             }
         }
         return out
-    }
-
-    static func isCokerABC(_ abc: String) -> Bool {
-        abc.contains("Coker Pattern")
     }
 
     static func needsRhythmFix(_ abc: String) -> Bool {

@@ -1,9 +1,10 @@
+import AppKit
 import SwiftUI
 
 struct ContentView: View {
     @StateObject private var state = AppState()
-    /// Local editor text — isolated from score render updates so typing is never interrupted.
     @State private var editorText = ABCUtilities.defaultTestABC
+    @State private var editorScrollRef: NSScrollView?
 
     var body: some View {
         VStack(spacing: 0) {
@@ -30,10 +31,13 @@ struct ContentView: View {
             state.isPlaying = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .generate12Keys)) { _ in
-            Task { await state.generate12Keys(from: editorText) }
+            Task { await updateScore() }
         }
         .onChange(of: state.editorRevision) { _ in
             editorText = state.programmaticEditorText
+            if let tv = editorScrollRef?.documentView as? NSTextView {
+                tv.string = state.programmaticEditorText
+            }
         }
         .task {
             guard !CommandLine.arguments.contains("--self-test") else { return }
@@ -41,11 +45,18 @@ struct ContentView: View {
         }
     }
 
+    private func liveEditorText() -> String {
+        ABCEditorView.currentText(in: editorScrollRef) ?? editorText
+    }
+
+    private func updateScore() async {
+        await state.renderNow(concertABC: liveEditorText())
+    }
+
     private var toolbar: some View {
         HStack(spacing: 12) {
             Label("ABC Sheet Music", systemImage: "music.note.list")
                 .font(.headline)
-                .foregroundStyle(.primary)
 
             Divider().frame(height: 22)
 
@@ -57,13 +68,13 @@ struct ContentView: View {
             .pickerStyle(.menu)
             .frame(width: 240)
             .onChange(of: state.instrument) { _ in
-                Task { await state.instrumentChanged(concertABC: editorText) }
+                Task { await state.instrumentChanged(concertABC: liveEditorText()) }
             }
 
             Button("12 Keys") {
-                Task { await state.generate12Keys(from: editorText) }
+                Task { await state.generate12Keys(from: liveEditorText()) }
             }
-            .help("Expand your one-bar pattern through all 12 chromatic keys (book style)")
+            .help("Fill missing chromatic keys using your first bar's pattern (e.g. 5 keys → adds 7)")
 
             Divider().frame(height: 22)
 
@@ -76,19 +87,15 @@ struct ContentView: View {
                 Label(state.isPlaying ? "Stop" : "Play", systemImage: state.isPlaying ? "stop.fill" : "play.fill")
             }
             .disabled(state.bridge == nil)
-            .keyboardShortcut(" ", modifiers: [])
-            .help("Play at concert pitch (soundfont downloads on first play)")
 
-            if !state.liveRender {
-                Button("Update Score") {
-                    Task { await state.renderNow(concertABC: editorText) }
-                }
-                .keyboardShortcut(.return, modifiers: .command)
-                .help("Redraw the score now — only needed when Live is off")
+            Button("Update Score") {
+                Task { await updateScore() }
             }
+            .keyboardShortcut(.return, modifiers: .command)
+            .help("Redraw the score from the editor right now")
 
             Toggle("Live", isOn: $state.liveRender)
-                .help("Auto-update the score as you type")
+                .help("Auto-update score ~0.3s after you stop typing")
 
             Picker("Layout", selection: $state.measuresPerLine) {
                 Text("1 / line").tag(1)
@@ -98,7 +105,7 @@ struct ContentView: View {
             .pickerStyle(.menu)
             .frame(width: 90)
             .onChange(of: state.measuresPerLine) { _ in
-                Task { await state.renderNow(concertABC: editorText) }
+                Task { await updateScore() }
             }
 
             Spacer()
@@ -118,7 +125,7 @@ struct ContentView: View {
                     .font(.caption.weight(.bold))
                     .foregroundStyle(.secondary)
                 Spacer()
-                Text("Concert pitch · edit here")
+                Text("Concert pitch")
                     .font(.caption2)
                     .padding(.horizontal, 8)
                     .padding(.vertical, 3)
@@ -128,9 +135,7 @@ struct ContentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-            Text(state.isTwelveKeys
-                 ? "12 Keys on score · edit your one-bar concert pattern here"
-                 : "Score shows \(state.instrument.shortName) written pitch · edit concert ABC here")
+            Text("Edit here · score transposes for \(state.instrument.shortName) · 12 Keys fills what's missing")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 12)
@@ -139,7 +144,8 @@ struct ContentView: View {
             Divider()
 
             ZStack(alignment: .topLeading) {
-                ABCEditorView(text: $editorText) { text in
+                ABCEditorView(text: $editorText, scrollRef: $editorScrollRef) { text in
+                    editorText = text
                     state.userEdited(concertABC: text)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -187,3 +193,4 @@ struct ContentView: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 }
+

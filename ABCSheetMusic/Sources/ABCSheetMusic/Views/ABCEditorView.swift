@@ -1,12 +1,13 @@
 import AppKit
 import SwiftUI
 
-/// Monospaced ABC editor — NSTextView stays first responder; never overwritten while typing.
+/// Monospaced ABC editor — isolated from score updates while typing.
 struct ABCEditorView: NSViewRepresentable {
     @Binding var text: String
+    var scrollRef: Binding<NSScrollView?>?
     var onEdit: (String) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(self) }
+    func makeCoordinator() -> Coordinator { Coordinator(onEdit: onEdit) }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = EditorScrollView()
@@ -41,47 +42,51 @@ struct ABCEditorView: NSViewRepresentable {
 
         scroll.documentView = textView
         context.coordinator.textView = textView
-
-        DispatchQueue.main.async {
-            scroll.window?.makeFirstResponder(textView)
-        }
+        context.coordinator.onBindingChange = { text = $0 }
+        scrollRef?.wrappedValue = scroll
 
         return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
-        context.coordinator.parent = self
+        context.coordinator.onEdit = onEdit
+        scrollRef?.wrappedValue = scroll
         guard let textView = scroll.documentView as? EditorTextView else { return }
-
-        // Never push SwiftUI state into the text view while the user is typing.
-        if textView.window?.firstResponder === textView { return }
-        if context.coordinator.isApplyingEdit { return }
-        if textView.string == text { return }
+        guard !context.coordinator.isApplyingEdit else { return }
+        guard textView.window?.firstResponder !== textView else { return }
+        guard textView.string != text else { return }
 
         let selection = textView.selectedRanges
         textView.string = text
         textView.selectedRanges = selection
     }
 
+    /// Read live text from NSTextView (binding can lag behind keystrokes).
+    static func currentText(in scrollView: NSScrollView?) -> String? {
+        (scrollView?.documentView as? NSTextView)?.string
+    }
+
     final class Coordinator: NSObject, NSTextViewDelegate {
-        var parent: ABCEditorView
+        var onEdit: (String) -> Void
+        var onBindingChange: ((String) -> Void)?
         weak var textView: NSTextView?
         var isApplyingEdit = false
 
-        init(_ parent: ABCEditorView) { self.parent = parent }
+        init(onEdit: @escaping (String) -> Void) {
+            self.onEdit = onEdit
+        }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            isApplyingEdit = true
             let value = textView.string
-            parent.text = value
-            parent.onEdit(value)
+            isApplyingEdit = true
+            onBindingChange?(value)
+            onEdit(value)
             isApplyingEdit = false
         }
     }
 }
 
-/// Click anywhere in the editor pane to focus the text view.
 private final class EditorScrollView: NSScrollView {
     override func mouseDown(with event: NSEvent) {
         if let tv = documentView as? NSTextView {

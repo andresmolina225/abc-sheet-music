@@ -1,57 +1,56 @@
 import Foundation
 
-/// Expands a one-bar ABC template into 12 chromatic keys (book style).
+/// Fills in missing chromatic keys using the pattern from the first bar.
 struct Keys12Generator {
     private let bridge: ABCBridge
-
-    private static let chromatic: [(label: String, key: String)] = [
-        ("C", "C"), ("Db", "Db"), ("D", "D"), ("Eb", "Eb"), ("E", "E"), ("F", "F"),
-        ("Gb", "Gb"), ("G", "G"), ("Ab", "Ab"), ("A", "A"), ("Bb", "Bb"), ("B", "B"),
-    ]
 
     init(bridge: ABCBridge) {
         self.bridge = bridge
     }
 
-    func generate(from templateABC: String, for instrument: Instrument) async throws -> String {
-        let templateKey = ABCUtilities.keyFromAbc(templateABC)
-        guard let templateBody = ABCUtilities.firstBarBody(from: templateABC) else {
+    /// Keep existing bars; generate only keys not already present (e.g. 5 → add 7 more).
+    func complete(from abc: String) async throws -> String {
+        let fixed = ABCUtilities.fixRhythmBarlines(abc)
+        var (header, existingBars) = ABCUtilities.parseScore(fixed)
+
+        guard let template = existingBars.first else {
             throw Keys12Error.noBarFound
         }
 
-        var lines = [
-            "X:1",
-            "T:12 Keys (\(instrument.shortName))",
-            "C:ABC Sheet Music",
-            "M:4/4",
-            "L:1/8",
-            "Q:1/4=88",
-            "%%stretchlast 0.04",
-            "%%annotationfont Helvetica 14",
-            "V:1",
-            "K:none",
-            "% Book style — key name above each bar, no key signature.",
-            "% Rhythm: (3 asc (3 desc N4 — no | before the half note.",
-        ]
+        let templateKey = template.concertKey
+        let templateBody = template.body
+        var byKey: [String: ABCBar] = [:]
+        for bar in existingBars {
+            byKey[bar.concertKey] = bar
+        }
 
-        for (index, target) in Self.chromatic.enumerated() {
-            let shift = ABCUtilities.semitoneOffset(from: templateKey, to: target.key)
+        for targetKey in ABCUtilities.chromaticKeys {
+            guard byKey[targetKey] == nil else { continue }
+            let shift = ABCUtilities.semitoneOffset(from: templateKey, to: targetKey)
             var mini = ABCUtilities.miniAbc(key: templateKey, body: templateBody)
             if shift != 0 {
                 mini = try await bridge.transpose(mini, steps: shift)
             }
-            var transposed = try await bridge.transpose(mini, steps: instrument.transposeSteps)
-            transposed = try await ABCUtilities.fitWrittenRange(transposed, range: instrument.writtenRange) { abc, steps in
-                try await bridge.transpose(abc, steps: steps)
-            }
-            let writtenKey = ABCUtilities.keyFromAbc(transposed)
-            let body = ABCUtilities.notesFromAbc(transposed)
-            let end = index == Self.chromatic.count - 1 ? " ||" : " |"
-            lines.append("% \(writtenKey) (concert \(target.key))")
-            lines.append("[K:none]")
-            lines.append(ABCUtilities.bookBarLine(keyName: writtenKey, body: body) + end)
+            let key = ABCUtilities.keyFromAbc(mini)
+            let body = ABCUtilities.notesFromAbc(mini)
+            byKey[targetKey] = ABCBar(concertKey: key, body: body)
         }
-        return ABCUtilities.fixRhythmBarlines(lines.joined(separator: "\n"))
+
+        let ordered = ABCUtilities.chromaticKeys.compactMap { byKey[$0] }
+        if header.isEmpty {
+            header = [
+                "X:1",
+                "T:12 Keys",
+                "M:4/4",
+                "L:1/8",
+                "Q:1/4=88",
+                "K:C",
+            ]
+        } else if let ti = header.firstIndex(where: { $0.hasPrefix("T:") }) {
+            header[ti] = "T:12 Keys"
+        }
+
+        return ABCUtilities.rebuildScore(header: header, bars: ordered)
     }
 }
 
