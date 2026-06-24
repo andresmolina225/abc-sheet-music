@@ -5,39 +5,60 @@ M:4/4
 L:1/8
 Q:1/4=88
 %%stretchlast 0.04
+V:1
 K:C
 %
-% ── 4/4 rhythm (L:1/8): each bar = 8 eighth-units ──
-%   Beat 1: ascending 8th triplet  → 2 units (1 beat)
-%   Beat 2: descending 8th triplet → 2 units (1 beat)
-%   Beats 3–4: root half note (N4) → 4 units (2 beats)
+% L:1/8 → C2 = quarter (2 units), C4 = half (4 units), bar = 8 units = 4 beats
 %
-% Never put the half note inside (3…) — that breaks meter.
-% Use app.html → Gen Coker for instrument transposition via ABCJS.strTranspose.
+% 4/4 rhythm per bar:
+%   Beat 1: ascending 8th triplet   (3 …)  → 2 units
+%   Beat 2: descending 8th triplet  (3 …)  → 2 units
+%   Beats 3–4: root half note       N4     → 4 units
+%
+% NEVER put "|" between the triplets and the half note — "|" is a barline
+% and will truncate the measure to 2 beats (only the two triplets).
+%
+% Instrument transposition: app.html → Gen Coker (ABCJS.strTranspose)
+%   Tenor Sax  +14 st (major 9th written above concert)
+%   Alto Sax   +9 st  (major 6th)
+%   Bb Cl/Trp  +2 st  (major 2nd)
 %
 % ── C ──
-[K:C] (3 C E G (3 c G E | C4 |
+[K:C]
+(3 C E G (3 c G E C4 |
 % ── Db ──
-[K:Db] (3 _D _F _A (3 _d _A _F | _D4 |
+[K:Db]
+(3 _D _F _A (3 _d _A _F _D4 |
 % ── D ──
-[K:D] (3 D ^F A (3 d A F | D4 |
+[K:D]
+(3 D ^F A (3 d A F D4 |
 % ── Eb ──
-[K:Eb] (3 _E _G _B (3 _e _B _G | _E4 |
+[K:Eb]
+(3 _E _G _B (3 _e _B _G _E4 |
 % ── E ──
-[K:E] (3 E ^G B (3 e B G | E4 |
+[K:E]
+(3 E ^G B (3 e B G E4 |
 % ── F ──
-[K:F] (3 F A c (3 f c A | F4 |
+[K:F]
+(3 F A c (3 f c A F4 |
 % ── Gb ──
-[K:Gb] (3 _G _B _d (3 _g _d _B | _G4 |
+[K:Gb]
+(3 _G _B _d (3 _g _d _B _G4 |
 % ── G ──
-[K:G] (3 G B d (3 g d B | G4 |
+[K:G]
+(3 G B d (3 g d B G4 |
 % ── Ab ──
-[K:Ab] (3 _A _c _e (3 _a _e _c | _A4 |
+[K:Ab]
+(3 _A _c _e (3 _a _e _c _A4 |
 % ── A ──
-[K:A] (3 A ^c e (3 a e c | A4 |
+[K:A]
+(3 A ^c e (3 a e c A4 |
 % ── Bb ──
-[K:Bb] (3 _B _d _f (3 _b _f _d | _B4 |
+[K:Bb]
+(3 _B _d _f (3 _b _f _d _B4 |
 % ── B ──
-[K:B] (3 B ^d ^f (3 b f d | B4 |
+[K:B]
+(3 B ^d ^f (3 b f d B4 |
 % ── C (8va) ──
-[K:C] (3 c e g (3 c' g e | c4 ||
+[K:C]
+(3 c e g (3 c' g e c4 ||
