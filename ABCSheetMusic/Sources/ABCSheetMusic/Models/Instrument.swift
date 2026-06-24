@@ -58,6 +58,16 @@ enum Instrument: String, CaseIterable, Identifiable, Codable {
         }
     }
 
+    /// Comfortable written MIDI range for octave fitting.
+    var writtenRange: ClosedRange<Int>? {
+        switch self {
+        case .tenor:   return 58...86
+        case .alto:    return 55...84
+        case .bb:      return 60...84
+        case .concert: return nil
+        }
+    }
+
     var menuTitle: String {
         switch self {
         case .tenor:   return "Tenor Sax — maj 9th (+14)"

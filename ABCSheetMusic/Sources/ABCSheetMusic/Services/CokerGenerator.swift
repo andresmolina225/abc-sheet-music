@@ -1,6 +1,6 @@
 import Foundation
 
-/// Builds the Jerry Coker chromatic cycle in ABC notation.
+/// Builds the Jerry Coker chromatic cycle — book style (K:none, key name above each bar).
 struct CokerGenerator {
     private let bridge: ABCBridge
 
@@ -17,21 +17,27 @@ struct CokerGenerator {
             "L:1/8",
             "Q:1/4=88",
             "%%stretchlast 0.04",
+            "%%annotationfont Helvetica 14",
             "V:1",
-            "K:C",
+            "K:none",
+            "% Book style: no key signature — accidentals on notes, key name above each bar.",
+            "% 4/4 rhythm: (3 asc (3 desc N4 — never | between triplets and half note.",
         ]
 
         let bars = ConcertBar.fullCycle
         for (index, bar) in bars.enumerated() {
             let mini = ABCUtilities.miniAbc(key: bar.key, body: bar.body)
-            let transposed = try await bridge.transpose(mini, steps: instrument.transposeSteps)
-            let key = ABCUtilities.keyFromAbc(transposed)
+            var transposed = try await bridge.transpose(mini, steps: instrument.transposeSteps)
+            transposed = try await ABCUtilities.fitWrittenRange(transposed, range: instrument.writtenRange) { abc, steps in
+                try await bridge.transpose(abc, steps: steps)
+            }
+            let writtenKey = ABCUtilities.keyFromAbc(transposed)
             let body = ABCUtilities.notesFromAbc(transposed)
             let end = index == bars.count - 1 ? " ||" : " |"
-            lines.append("% ── \(bar.label) (concert \(bar.key)) ──")
-            lines.append("[K:\(key)]")
-            lines.append(body + end)
+            lines.append("% \(writtenKey) (concert \(bar.key))")
+            lines.append("[K:none]")
+            lines.append(ABCUtilities.bookBarLine(keyName: writtenKey, body: body) + end)
         }
-        return lines.joined(separator: "\n")
+        return ABCUtilities.fixRhythmBarlines(lines.joined(separator: "\n"))
     }
 }

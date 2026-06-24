@@ -27,6 +27,9 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .abcPlaybackFinished)) { _ in
             state.isPlaying = false
         }
+        .onReceive(NotificationCenter.default.publisher(for: .generateCoker)) { _ in
+            Task { await state.generateCoker() }
+        }
         .task {
             guard !CommandLine.arguments.contains("--self-test") else { return }
             await state.startIfNeeded()
@@ -55,6 +58,7 @@ struct ContentView: View {
             Button("Gen Coker") {
                 Task { await state.generateCoker() }
             }
+            .help("Regenerate full chromatic cycle in book style (K:none)")
 
             Divider().frame(height: 22)
 
@@ -119,14 +123,8 @@ struct ContentView: View {
 
             Divider()
 
-            TextEditor(text: $state.abcText)
-                .font(.system(.body, design: .monospaced))
-                .scrollContentBackground(.hidden)
-                .background(Color(nsColor: .textBackgroundColor))
-                .onChange(of: state.abcText) { _ in
-                    state.isCokerTune = state.abcText.contains("Coker Pattern")
-                    state.scheduleRender()
-                }
+            ABCEditorView(text: $state.abcText, onEdit: { state.userEditedABC() })
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
 
             if !state.warnings.isEmpty {
                 Divider()

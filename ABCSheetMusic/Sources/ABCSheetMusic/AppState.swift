@@ -18,10 +18,11 @@ final class AppState: ObservableObject {
     @Published private(set) var bridge: ABCBridge?
 
     private var didBootstrap = false
+    private var userHasEdited = false
     private var renderTask: Task<Void, Never>?
     private let defaults = UserDefaults.standard
-    private let abcKey = "abc-sheet-swift-abc"
-    private let instKey = "abc-sheet-inst-v8"
+    private let abcKey = "abc-sheet-swift-abc-v9"
+    private let instKey = "abc-sheet-inst-v9"
 
     init() {
         if let raw = defaults.string(forKey: instKey), let inst = Instrument(rawValue: raw) {
@@ -44,13 +45,16 @@ final class AppState: ObservableObject {
             }
             bridgeSignature = bridge.signature
             audioSupported = bridge.audioSupported
-            if let saved = defaults.string(forKey: abcKey), saved.contains("Coker Pattern") {
-                isCokerTune = true
-                await generateCoker()
-            } else if let saved = defaults.string(forKey: abcKey), !saved.isEmpty {
-                isCokerTune = false
-                abcText = saved
-                await renderNow()
+            if let saved = defaults.string(forKey: abcKey), !saved.isEmpty {
+                let fixed = ABCUtilities.fixRhythmBarlines(saved)
+                isCokerTune = ABCUtilities.isCokerABC(fixed)
+                userHasEdited = !isCokerTune
+                abcText = fixed
+                if isCokerTune, ABCUtilities.needsRhythmFix(saved) || !saved.contains("K:none") {
+                    await generateCoker()
+                } else {
+                    await renderNow()
+                }
             } else {
                 await generateCoker()
             }
@@ -58,6 +62,12 @@ final class AppState: ObservableObject {
             warnings = [error.localizedDescription] + (bridge.jsErrors)
             BridgeDiagnostics.log("bootstrap failed: \(error)")
         }
+    }
+
+    func userEditedABC() {
+        userHasEdited = true
+        isCokerTune = ABCUtilities.isCokerABC(abcText)
+        scheduleRender()
     }
 
     func scheduleRender() {
@@ -72,6 +82,7 @@ final class AppState: ObservableObject {
 
     func renderNow() async {
         guard let bridge else { return }
+        abcText = ABCUtilities.fixRhythmBarlines(abcText)
         title = ABCUtilities.parseTitle(abcText)
         guard !abcText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             warnings = []
@@ -91,6 +102,7 @@ final class AppState: ObservableObject {
     func generateCoker() async {
         guard let bridge else { return }
         isCokerTune = true
+        userHasEdited = false
         measuresPerLine = 1
         do {
             let gen = CokerGenerator(bridge: bridge)
@@ -103,8 +115,11 @@ final class AppState: ObservableObject {
 
     func instrumentChanged() async {
         defaults.set(instrument.rawValue, forKey: instKey)
-        if isCokerTune { await generateCoker() }
-        else { await renderNow() }
+        if isCokerTune, !userHasEdited {
+            await generateCoker()
+        } else {
+            await renderNow()
+        }
     }
 
     func play() async {
@@ -136,8 +151,9 @@ final class AppState: ObservableObject {
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url,
            let text = try? String(contentsOf: url, encoding: .utf8) {
-            isCokerTune = false
-            abcText = text
+            userHasEdited = true
+            isCokerTune = ABCUtilities.isCokerABC(text)
+            abcText = ABCUtilities.fixRhythmBarlines(text)
             Task { await renderNow() }
         }
     }
