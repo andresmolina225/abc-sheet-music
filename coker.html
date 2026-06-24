@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Coker Pattern — abcjs test</title>
+  <script src="abcjs/dist/abcjs-basic.js"></script>
+  <style>
+    :root {
+      --ink: #1a1a1a;
+      --muted: #555;
+      --border: #ddd;
+      --bg: #f6f6f6;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: system-ui, sans-serif;
+      color: var(--ink);
+      margin: 0;
+      padding: 1.5rem;
+      background: #fff;
+    }
+
+    h1 {
+      font-size: 1.35rem;
+      font-weight: 600;
+      margin: 0 0 0.25rem;
+    }
+
+    .meta {
+      color: var(--muted);
+      font-size: 0.9rem;
+      margin-bottom: 1.25rem;
+    }
+
+    .layout {
+      display: grid;
+      grid-template-columns: minmax(280px, 1fr) 2fr;
+      gap: 1.25rem;
+      align-items: start;
+    }
+
+    @media (max-width: 900px) {
+      .layout { grid-template-columns: 1fr; }
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 28rem;
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.8rem;
+      line-height: 1.45;
+      padding: 0.75rem;
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      resize: vertical;
+    }
+
+    .panel {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 0.75rem;
+      background: var(--bg);
+    }
+
+    .panel h2 {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      color: var(--muted);
+      margin: 0 0 0.5rem;
+      font-weight: 600;
+    }
+
+    .actions {
+      display: flex;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
+    button {
+      font: inherit;
+      padding: 0.4rem 0.85rem;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 5px;
+      cursor: pointer;
+    }
+
+    button:hover { border-color: #2c5282; color: #2c5282; }
+
+    #warnings {
+      font-size: 0.85rem;
+      color: #9a3412;
+      margin-top: 0.5rem;
+      white-space: pre-wrap;
+    }
+
+    #warnings:empty { display: none; }
+
+    #paper {
+      background: #fff;
+      padding: 0.5rem 0;
+      overflow-x: auto;
+    }
+
+    @media print {
+      .no-print { display: none !important; }
+      body { padding: 0; }
+      .layout { display: block; }
+      #paper { overflow: visible; }
+    }
+  </style>
+</head>
+<body>
+  <header class="no-print">
+    <h1>Coker Pattern — Full Cycle</h1>
+    <p class="meta">Local abcjs test · edit ABC on the left, notation updates on render</p>
+    <div class="actions">
+      <button type="button" id="render-btn">Render</button>
+      <button type="button" onclick="window.print()">Print / Save PDF</button>
+    </div>
+  </header>
+
+  <div class="layout">
+    <section class="panel no-print">
+      <h2>ABC input</h2>
+      <textarea id="abc" spellcheck="false"></textarea>
+      <div id="warnings"></div>
+    </section>
+
+    <section>
+      <div class="panel no-print"><h2>Rendered output</h2></div>
+      <div id="paper"></div>
+    </section>
+  </div>
+
+  <script>
+    const defaultAbc = `X:1
+T:Coker Pattern - Full Cycle (continue same rhythm)
+M:4/4
+L:1/8
+Q:1/4=60-120
+K:C
+% C
+(3 C E G (3 c G E | C4 |
+% Db
+(3 _D _F _A (3 _d _A _F | _D4 |
+% D
+(3 D F# A (3 d A F | D4 |
+% Eb
+(3 _E _G _B (3 _e _B _G | _E4 |
+% E
+(3 E G# B (3 e B G | E4 |
+% F
+(3 F A C' (3 f C' A | F4 |
+% Gb
+(3 _G _B _D' (3 _g _D' _B | _G4 |
+% G
+(3 G B D' (3 g D' B | G4 |
+% Ab
+(3 _A _C' _E' (3 _a _E' _C' | _A4 |
+% A
+(3 A C#' E' (3 a E' C' | A4 |
+% Bb
+(3 _B _D' _F' (3 _b _F' _D' | _B4 |
+% B
+(3 B D#' F#' (3 b F#' D' | B4 |
+% C (octave up)
+(3 c' e' g' (3 c'' g' e' | c'4 ||`;
+
+    const abcEl = document.getElementById("abc");
+    const warningsEl = document.getElementById("warnings");
+
+    abcEl.value = defaultAbc;
+
+    function render() {
+      warningsEl.textContent = "";
+      const visualObjs = ABCJS.renderAbc("paper", abcEl.value, {
+        responsive: "resize",
+        oneSvgPerLine: true,
+        add_classes: true,
+        staffwidth: 740,
+        wrap: {
+          preferredMeasuresPerLine: 1,
+          minSpacing: 1.4,
+          maxSpacing: 2.4
+        }
+      });
+
+      const warnings = [];
+      visualObjs.forEach((obj, i) => {
+        (obj.warnings || []).forEach((w) => {
+          warnings.push(`Tune ${i + 1}: ${w.message}`);
+        });
+      });
+
+      if (warnings.length) {
+        warningsEl.textContent = warnings.join("\n");
+      }
+    }
+
+    document.getElementById("render-btn").addEventListener("click", render);
+    render();
+  </script>
+</body>
+</html>

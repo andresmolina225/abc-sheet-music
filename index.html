@@ -1,0 +1,213 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>abcjs — local usage</title>
+  <script src="abcjs/dist/abcjs-basic.js"></script>
+  <style>
+    :root {
+      --ink: #1a1a1a;
+      --muted: #555;
+      --border: #ddd;
+      --bg: #fafafa;
+      --accent: #2c5282;
+    }
+
+    * { box-sizing: border-box; }
+
+    body {
+      font-family: Georgia, "Times New Roman", serif;
+      color: var(--ink);
+      line-height: 1.55;
+      max-width: 52rem;
+      margin: 0 auto;
+      padding: 2rem 1.5rem 3rem;
+      background: #fff;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      margin: 0 0 0.25rem;
+      font-weight: normal;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin: 0 0 2rem;
+      font-size: 0.95rem;
+    }
+
+    h2 {
+      font-size: 1.1rem;
+      margin: 2rem 0 0.75rem;
+      border-bottom: 1px solid var(--border);
+      padding-bottom: 0.35rem;
+      font-weight: normal;
+      letter-spacing: 0.02em;
+    }
+
+    pre, code {
+      font-family: "SF Mono", Menlo, Consolas, monospace;
+      font-size: 0.82rem;
+    }
+
+    pre {
+      background: var(--bg);
+      border: 1px solid var(--border);
+      padding: 1rem 1.1rem;
+      overflow-x: auto;
+      margin: 0.75rem 0 1rem;
+      border-radius: 4px;
+    }
+
+    code { background: var(--bg); padding: 0.1em 0.35em; border-radius: 3px; }
+
+    pre code { background: none; padding: 0; }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 0.9rem;
+      margin: 0.75rem 0 1rem;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 0.45rem 0.6rem;
+      border: 1px solid var(--border);
+      vertical-align: top;
+    }
+
+    th { background: var(--bg); font-weight: 600; }
+
+    .actions {
+      display: flex;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+      margin: 1.5rem 0;
+    }
+
+    button {
+      font: inherit;
+      padding: 0.45rem 1rem;
+      border: 1px solid var(--border);
+      background: #fff;
+      border-radius: 4px;
+      cursor: pointer;
+    }
+
+    button:hover { border-color: var(--accent); color: var(--accent); }
+
+    #paper {
+      margin-top: 1rem;
+      padding: 1rem 0;
+      border-top: 1px solid var(--border);
+    }
+
+    .note {
+      font-size: 0.9rem;
+      color: var(--muted);
+    }
+
+    @media print {
+      body { padding: 0; max-width: none; }
+      .no-print { display: none !important; }
+      pre { border: none; background: none; padding: 0; }
+      h2 { page-break-after: avoid; }
+      #paper { border: none; }
+    }
+  </style>
+</head>
+<body>
+  <header>
+    <h1>abcjs — local usage</h1>
+    <p class="subtitle">Rendering ABC notation with your local clone at <code>proj/abcjs</code></p>
+  </header>
+
+  <section class="no-print actions">
+    <button type="button" onclick="window.print()">Print this page</button>
+    <button type="button" onclick="renderSample()">Re-render sample</button>
+    <a href="app.html" style="align-self:center;font-size:0.95rem;font-weight:600;">→ Open ABC Sheet Music UI</a>
+  </section>
+
+  <section>
+    <h2>Quick start</h2>
+    <p>From the <code>proj</code> directory, start a local server:</p>
+    <pre><code>cd ~/proj
+./start-abcjs.sh</code></pre>
+    <p>Then open <strong>http://localhost:8080</strong> in your browser.</p>
+  </section>
+
+  <section>
+    <h2>Minimal HTML</h2>
+    <pre><code>&lt;div id="paper"&gt;&lt;/div&gt;
+&lt;script src="abcjs/dist/abcjs-basic.js"&gt;&lt;/script&gt;
+&lt;script&gt;
+  const abc = `T: Cooley's
+M: 4/4
+L: 1/8
+K: Emin
+|:D2|EB{c}BA B2 EB|~B2 AB dBAG|FDAD BDAD|FDAD dAFD|
+EBBA B2 EB|B2 AB defg|afe^c dBAF|DEFD E2:|`;
+
+  ABCJS.renderAbc("paper", abc);
+&lt;/script&gt;</code></pre>
+  </section>
+
+  <section>
+    <h2>Core API</h2>
+    <table>
+      <thead>
+        <tr><th>Function</th><th>Purpose</th></tr>
+      </thead>
+      <tbody>
+        <tr><td><code>ABCJS.renderAbc(target, abcString, params?)</code></td><td>Render sheet music into a DOM element or selector. Returns an array of tune objects.</td></tr>
+        <tr><td><code>ABCJS.renderAbc(target, abcString, { responsive: "resize" })</code></td><td>Re-layout when the window is resized.</td></tr>
+        <tr><td><code>ABCJS.renderAbc(target, abcString, { oneSvgPerLine: true })</code></td><td>One SVG per staff line — best for printing / PDF export.</td></tr>
+        <tr><td><code>new ABCJS.Editor(textareaId, options)</code></td><td>Live editor: type ABC, see notation update.</td></tr>
+        <tr><td><code>ABCJS.synth.CreateSynth()</code></td><td>Browser audio playback (requires user gesture to start).</td></tr>
+        <tr><td><code>ABCJS.strTranspose(abc, steps)</code></td><td>Transpose ABC text by semitone steps.</td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Built-in examples</h2>
+    <p class="note">Serve from the repo root (<code>abcjs/</code>) to browse all demos:</p>
+    <table>
+      <tbody>
+        <tr><td>Basic render</td><td><code>/examples/basic.html</code></td></tr>
+        <tr><td>Print / PDF</td><td><code>/examples/printable.html</code></td></tr>
+        <tr><td>Live editor</td><td><code>/examples/editor.html</code></td></tr>
+        <tr><td>Audio synth</td><td><code>/examples/basic-synth.html</code></td></tr>
+        <tr><td>Full test suite</td><td><code>/tests/all.html</code></td></tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section>
+    <h2>Sample output</h2>
+    <p class="note">Cooley's Reel — rendered from the local <code>abcjs-basic.js</code> build.</p>
+    <div id="paper"></div>
+  </section>
+
+  <script>
+    const sampleAbc = `T: Cooley's
+M: 4/4
+L: 1/8
+R: reel
+K: Emin
+|:D2|EB{c}BA B2 EB|~B2 AB dBAG|FDAD BDAD|FDAD dAFD|
+EBBA B2 EB|B2 AB defg|afe^c dBAF|DEFD E2:|
+|:gf|eB B2 efge|eB B2 gedB|A2 FA DAFA|A2 FA defg|
+eB B2 eBgB|eB B2 defg|afe^c dBAF|DEFD E2:|`;
+
+    function renderSample() {
+      ABCJS.renderAbc("paper", sampleAbc, { responsive: "resize" });
+    }
+
+    renderSample();
+  </script>
+</body>
+</html>

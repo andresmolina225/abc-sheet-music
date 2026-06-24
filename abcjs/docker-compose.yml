@@ -1,0 +1,10 @@
+services:
+  app:
+    image: abcjs
+    build: .
+    container_name: abcjs
+    volumes:
+      - .:/srv/app
+      - ./node_modules:/srv/app/node_modules
+    ports:
+      - $abcjs_docs:8080

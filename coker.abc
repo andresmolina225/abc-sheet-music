@@ -1,0 +1,16 @@
+X:1
+T:Coker Pattern - One Bar Template (Concert C)
+M:4/4
+L:1/8
+Q:1/4=80
+K:C
+% 4/4 rhythm — L:1/8 means C=eighth, C2=quarter:
+%   Beat 1: (3 C E G     triplet (1 beat)
+%   Beat 2: (3 c G E     triplet (1 beat)
+%   Beat 3: C2            quarter (1 beat)
+%   Beat 4: C2            quarter (1 beat)
+(3 C E G (3 c G E | C2 C2 |
+%
+% Full chromatic cycle: open app.html → Gen Coker
+% Each measure uses inline [K:Db] etc. for clean key signatures.
+% Instrument transpose applied per bar via ABCJS.strTranspose.
