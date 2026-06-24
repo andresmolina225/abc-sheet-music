@@ -3,20 +3,19 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <link rel="stylesheet" href="abcapp://abcjs/abcjs-audio.css">
+  <link rel="stylesheet" href="abcapp:///abcjs/abcjs-audio.css">
   <style>
     * { box-sizing: border-box; margin: 0; padding: 0; }
     html, body { height: 100%; background: #f8f5ef; overflow: auto; }
     #paper { padding: 1.5rem 2rem 3rem; min-height: 100%; }
     #paper svg .highlight { fill: #3d8bfd; opacity: 0.35; }
-    /* Keep #audio in layout (display:none breaks some WebAudio paths) */
     #audio { position: absolute; width: 1px; height: 1px; opacity: 0; pointer-events: none; overflow: hidden; }
   </style>
-  <script src="abcapp://abcjs/dist/abcjs-basic.js"></script>
+  <script src="abcapp:///abcjs/dist/abcjs-basic.js"></script>
 </head>
 <body>
   <div id="paper"></div>
   <div id="audio"></div>
-  <script src="abcapp://Bridge/abc-bridge.js"></script>
+  <script src="abcapp:///Bridge/abc-bridge.js"></script>
 </body>
 </html>

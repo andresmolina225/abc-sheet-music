@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 import WebKit
 
@@ -12,13 +13,7 @@ struct SimpleResult: Codable {
     var error: String?
 }
 
-struct PingResult: Codable {
-    let ok: Bool
-    let signature: String?
-    let audioSupported: Bool?
-}
-
-/// Serializes all evaluateJavaScript calls — prevents overlapping render/transpose errors.
+/// Serializes evaluateJavaScript — all callbacks resume on MainActor.
 @MainActor
 private final class WebViewJSQueue {
     private let webView: WKWebView
@@ -30,10 +25,12 @@ private final class WebViewJSQueue {
     func eval(_ script: String) async throws -> Any? {
         await acquire()
         defer { release() }
-        return try await withCheckedThrowingContinuation { cont in
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any?, Error>) in
             webView.evaluateJavaScript(script) { value, error in
-                if let error { cont.resume(throwing: error) }
-                else { cont.resume(returning: value) }
+                Task { @MainActor in
+                    if let error { cont.resume(throwing: error) }
+                    else { cont.resume(returning: value) }
+                }
             }
         }
     }
@@ -45,8 +42,7 @@ private final class WebViewJSQueue {
 
     private func release() {
         if waiters.isEmpty { busy = false; return }
-        let next = waiters.removeFirst()
-        next.resume()
+        waiters.removeFirst().resume()
     }
 }
 
@@ -57,45 +53,38 @@ final class ABCBridge: NSObject, ObservableObject {
     @Published private(set) var audioSupported = false
     @Published private(set) var jsErrors: [String] = []
 
-    let webView: WKWebView
-    private let jsQueue: WebViewJSQueue
+    private(set) var webView: WKWebView!
+    private var jsQueue: WebViewJSQueue!
     private var readyContinuation: CheckedContinuation<Void, Error>?
-    private var schemeHandler: LocalSchemeHandler?
+    private let schemeHandler: LocalSchemeHandler?
 
     override init() {
         let config = WKWebViewConfiguration()
-        config.preferences.setValue(true, forKey: "developerExtrasEnabled")
-        config.preferences.setValue(true, forKey: "javascriptEnabled")
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.mediaTypesRequiringUserActionForPlayback = []
 
         let handler = BridgeScriptHandler()
         config.userContentController.add(handler, name: "bridge")
 
-        webView = WKWebView(frame: CGRect(x: 0, y: 0, width: 800, height: 600), configuration: config)
-        jsQueue = WebViewJSQueue(webView: webView)
+        var scheme: LocalSchemeHandler?
+        if let resourceURL = Bundle.module.resourceURL {
+            scheme = LocalSchemeHandler(rootURL: resourceURL)
+            config.setURLSchemeHandler(scheme, forURLScheme: "abcapp")
+        }
+        schemeHandler = scheme
+
+        let wv = WKWebView(frame: .zero, configuration: config)
+        webView = wv
+        jsQueue = WebViewJSQueue(webView: wv)
 
         super.init()
         handler.owner = self
-        webView.navigationDelegate = self
-        webView.setValue(false, forKey: "drawsBackground")
-        loadBridgePage()
-    }
+        wv.navigationDelegate = self
+        wv.underPageBackgroundColor = .clear
 
-    private func loadBridgePage() {
-        guard let resourceURL = Bundle.module.resourceURL else {
-            markFailed(BridgeError.missingResources)
-            return
+        if let url = URL(string: "abcapp:///Bridge/index.html") {
+            wv.load(URLRequest(url: url))
         }
-        let scheme = LocalSchemeHandler(rootURL: resourceURL)
-        schemeHandler = scheme
-        webView.configuration.setURLSchemeHandler(scheme, forURLScheme: "abcapp")
-
-        guard let url = URL(string: "abcapp://Bridge/index.html") else {
-            markFailed(BridgeError.missingBridgeHTML)
-            return
-        }
-        webView.load(URLRequest(url: url))
     }
 
     fileprivate func handleBridgeMessage(_ body: [String: Any]) {
@@ -104,18 +93,24 @@ final class ABCBridge: NSObject, ObservableObject {
         case "ready":
             signature = body["signature"] as? String ?? "abcjs"
             audioSupported = body["audioSupported"] as? Bool ?? false
-            isReady = true
-            readyContinuation?.resume()
-            readyContinuation = nil
+            finishReady()
         case "playbackFinished":
             NotificationCenter.default.post(name: .abcPlaybackFinished, object: nil)
         case "jsError", "error":
-            let msg = body["message"] as? String ?? "JavaScript error"
-            appendJSError(msg)
+            appendJSError(body["message"] as? String ?? "JavaScript error")
         case "log":
             if let msg = body["message"] as? String { appendJSError(msg) }
         default:
             break
+        }
+    }
+
+    private func finishReady() {
+        guard !isReady else { return }
+        isReady = true
+        if let cont = readyContinuation {
+            readyContinuation = nil
+            cont.resume()
         }
     }
 
@@ -125,9 +120,11 @@ final class ABCBridge: NSObject, ObservableObject {
         if jsErrors.count > 8 { jsErrors.removeFirst() }
     }
 
-    private func markFailed(_ error: Error) {
-        readyContinuation?.resume(throwing: error)
-        readyContinuation = nil
+    private func failReady(_ error: Error) {
+        if let cont = readyContinuation {
+            readyContinuation = nil
+            cont.resume(throwing: error)
+        }
     }
 
     func waitUntilReady() async throws {
@@ -135,10 +132,9 @@ final class ABCBridge: NSObject, ObservableObject {
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             readyContinuation = cont
             Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 12_000_000_000)
+                try? await Task.sleep(nanoseconds: 15_000_000_000)
                 if !self.isReady {
-                    self.readyContinuation?.resume(throwing: BridgeError.timeout)
-                    self.readyContinuation = nil
+                    self.failReady(BridgeError.timeout)
                 }
             }
         }
@@ -194,17 +190,17 @@ final class ABCBridge: NSObject, ObservableObject {
 }
 
 extension ABCBridge: WKNavigationDelegate {
-    nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        Task { @MainActor in appendJSError("Navigation failed: \(error.localizedDescription)") }
+    func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        appendJSError("Navigation failed: \(error.localizedDescription)")
     }
 
-    nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        Task { @MainActor in appendJSError("Load failed: \(error.localizedDescription)") }
+    func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        appendJSError("Load failed: \(error.localizedDescription)")
+        failReady(BridgeError.missingBridgeHTML)
     }
 }
 
 enum BridgeError: LocalizedError {
-    case missingResources
     case missingBridgeHTML
     case timeout
     case badResponse
@@ -212,10 +208,9 @@ enum BridgeError: LocalizedError {
 
     var errorDescription: String? {
         switch self {
-        case .missingResources: return "App resources not found."
-        case .missingBridgeHTML: return "abcjs bridge page not found."
-        case .timeout: return "abcjs bridge timed out loading."
-        case .badResponse: return "Unexpected response from abcjs."
+        case .missingBridgeHTML: return "abcjs bridge page failed to load."
+        case .timeout: return "abcjs bridge timed out."
+        case .badResponse: return "Unexpected abcjs response."
         case .synthFailed(let msg): return msg
         }
     }
@@ -230,16 +225,16 @@ private final class BridgeScriptHandler: NSObject, WKScriptMessageHandler {
 
     func userContentController(_ userContentController: WKUserContentController, didReceive message: WKScriptMessage) {
         guard message.name == "bridge", let body = message.body as? [String: Any] else { return }
-        Task { @MainActor in owner?.handleBridgeMessage(body) }
+        DispatchQueue.main.async { [weak self] in
+            self?.owner?.handleBridgeMessage(body)
+        }
     }
 }
 
 private extension String {
     var jsLiteral: String {
-        if let data = try? JSONEncoder().encode(self),
-           let encoded = String(data: data, encoding: .utf8) {
-            return encoded
-        }
-        return "\"\""
+        guard let data = try? JSONEncoder().encode(self),
+              let encoded = String(data: data, encoding: .utf8) else { return "\"\"" }
+        return encoded
     }
 }

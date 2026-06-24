@@ -16,19 +16,24 @@ final class AppState: ObservableObject {
     @Published var bridgeSignature = "abcjs…"
     @Published var audioSupported = false
 
-    let bridge = ABCBridge()
+    lazy var bridge = ABCBridge()
 
+    private var didBootstrap = false
     private var renderTask: Task<Void, Never>?
     private let defaults = UserDefaults.standard
     private let abcKey = "abc-sheet-swift-abc"
     private let instKey = "abc-sheet-swift-inst"
 
     init() {
-        bridgeSignature = bridge.signature
         if let raw = defaults.string(forKey: instKey), let inst = Instrument(rawValue: raw) {
             instrument = inst
         }
-        Task { await bootstrap() }
+    }
+
+    func startIfNeeded() async {
+        guard !didBootstrap else { return }
+        didBootstrap = true
+        await bootstrap()
     }
 
     private func bootstrap() async {

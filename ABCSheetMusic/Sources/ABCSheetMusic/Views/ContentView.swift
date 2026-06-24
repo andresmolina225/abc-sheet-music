@@ -10,7 +10,7 @@ struct ContentView: View {
             HSplitView {
                 editorPane
                     .frame(minWidth: 280, idealWidth: 360, maxWidth: 520)
-                ScoreWebView(webView: state.bridge.webView)
+                ScoreWebView(bridge: state.bridge)
                     .frame(minWidth: 400)
             }
             Divider()
@@ -20,6 +20,7 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .abcPlaybackFinished)) { _ in
             state.isPlaying = false
         }
+        .task { await state.startIfNeeded() }
     }
 
     private var toolbar: some View {
