@@ -111,11 +111,19 @@
     return msgs;
   }
 
+  /** registerAudioContext() returns boolean; only AudioContext.resume() is a Promise. */
   function resumeAudioContext() {
-    if (ABCJS.synth.registerAudioContext) {
-      return ABCJS.synth.registerAudioContext();
+    try {
+      if (ABCJS.synth.registerAudioContext) ABCJS.synth.registerAudioContext();
+    } catch (e) { /* ignore */ }
+    var ac = window.abcjsAudioContext;
+    if (!ac || typeof ac.resume !== "function") return Promise.resolve();
+    try {
+      var p = ac.resume();
+      return (p && typeof p.then === "function") ? p : Promise.resolve();
+    } catch (e) {
+      return Promise.resolve();
     }
-    return Promise.resolve();
   }
 
   window.ABCBridge = {

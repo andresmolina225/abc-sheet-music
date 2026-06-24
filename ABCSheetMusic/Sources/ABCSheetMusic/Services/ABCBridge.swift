@@ -13,7 +13,6 @@ struct SimpleResult: Codable {
     var error: String?
 }
 
-/// Serializes evaluateJavaScript — all callbacks resume on MainActor.
 @MainActor
 private final class WebViewJSQueue {
     private let webView: WKWebView
@@ -25,11 +24,36 @@ private final class WebViewJSQueue {
     func eval(_ script: String) async throws -> Any? {
         await acquire()
         defer { release() }
+        BridgeDiagnostics.log("JS: \(script.prefix(120))…")
         return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any?, Error>) in
             webView.evaluateJavaScript(script) { value, error in
                 Task { @MainActor in
-                    if let error { cont.resume(throwing: error) }
-                    else { cont.resume(returning: value) }
+                    if let error {
+                        BridgeDiagnostics.log("JS error: \(error.localizedDescription)")
+                        cont.resume(throwing: error)
+                    } else {
+                        cont.resume(returning: value)
+                    }
+                }
+            }
+        }
+    }
+
+    /// WKWebView cannot return Promises from evaluateJavaScript (Code=5); callAsyncJavaScript awaits them.
+    func evalAsync(_ functionBody: String) async throws -> Any? {
+        await acquire()
+        defer { release() }
+        BridgeDiagnostics.log("JS async: \(functionBody.prefix(120))…")
+        return try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Any?, Error>) in
+            webView.callAsyncJavaScript(functionBody, arguments: [:], in: nil, in: .page) { result in
+                Task { @MainActor in
+                    switch result {
+                    case .success(let value):
+                        cont.resume(returning: value)
+                    case .failure(let error):
+                        BridgeDiagnostics.log("JS async error: \(error.localizedDescription)")
+                        cont.resume(throwing: error)
+                    }
                 }
             }
         }
@@ -55,10 +79,11 @@ final class ABCBridge: NSObject, ObservableObject {
 
     private(set) var webView: WKWebView!
     private var jsQueue: WebViewJSQueue!
-    private var readyContinuation: CheckedContinuation<Void, Error>?
+    private var readyWaiters: [CheckedContinuation<Void, Error>] = []
     private let schemeHandler: LocalSchemeHandler?
 
     override init() {
+        BridgeDiagnostics.log("ABCBridge init")
         let config = WKWebViewConfiguration()
         config.defaultWebpagePreferences.allowsContentJavaScript = true
         config.mediaTypesRequiringUserActionForPlayback = []
@@ -70,6 +95,9 @@ final class ABCBridge: NSObject, ObservableObject {
         if let resourceURL = Bundle.module.resourceURL {
             scheme = LocalSchemeHandler(rootURL: resourceURL)
             config.setURLSchemeHandler(scheme, forURLScheme: "abcapp")
+            BridgeDiagnostics.log("Resources at \(resourceURL.path)")
+        } else {
+            BridgeDiagnostics.log("ERROR: no Bundle.module.resourceURL")
         }
         schemeHandler = scheme
 
@@ -83,6 +111,7 @@ final class ABCBridge: NSObject, ObservableObject {
         wv.underPageBackgroundColor = .clear
 
         if let url = URL(string: "abcapp:///Bridge/index.html") {
+            BridgeDiagnostics.log("Loading \(url.absoluteString)")
             wv.load(URLRequest(url: url))
         }
     }
@@ -93,13 +122,19 @@ final class ABCBridge: NSObject, ObservableObject {
         case "ready":
             signature = body["signature"] as? String ?? "abcjs"
             audioSupported = body["audioSupported"] as? Bool ?? false
+            BridgeDiagnostics.log("Bridge ready · \(signature) · audio=\(audioSupported)")
             finishReady()
         case "playbackFinished":
             NotificationCenter.default.post(name: .abcPlaybackFinished, object: nil)
         case "jsError", "error":
-            appendJSError(body["message"] as? String ?? "JavaScript error")
+            let msg = body["message"] as? String ?? "JavaScript error"
+            BridgeDiagnostics.log("JS: \(msg)")
+            appendJSError(msg)
         case "log":
-            if let msg = body["message"] as? String { appendJSError(msg) }
+            if let msg = body["message"] as? String {
+                BridgeDiagnostics.log("JS log: \(msg)")
+                appendJSError(msg)
+            }
         default:
             break
         }
@@ -108,10 +143,15 @@ final class ABCBridge: NSObject, ObservableObject {
     private func finishReady() {
         guard !isReady else { return }
         isReady = true
-        if let cont = readyContinuation {
-            readyContinuation = nil
-            cont.resume()
-        }
+        let waiters = readyWaiters
+        readyWaiters = []
+        for w in waiters { w.resume() }
+    }
+
+    private func failAllWaiters(_ error: Error) {
+        let waiters = readyWaiters
+        readyWaiters = []
+        for w in waiters { w.resume(throwing: error) }
     }
 
     private func appendJSError(_ msg: String) {
@@ -120,23 +160,10 @@ final class ABCBridge: NSObject, ObservableObject {
         if jsErrors.count > 8 { jsErrors.removeFirst() }
     }
 
-    private func failReady(_ error: Error) {
-        if let cont = readyContinuation {
-            readyContinuation = nil
-            cont.resume(throwing: error)
-        }
-    }
-
     func waitUntilReady() async throws {
         if isReady { return }
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
-            readyContinuation = cont
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 15_000_000_000)
-                if !self.isReady {
-                    self.failReady(BridgeError.timeout)
-                }
-            }
+            readyWaiters.append(cont)
         }
     }
 
@@ -163,40 +190,59 @@ final class ABCBridge: NSObject, ObservableObject {
 
     func loadSynth(midiTranspose: Int, program: Int) async throws {
         try await waitUntilReady()
-        guard let json = try await jsQueue.eval(
-            "JSON.stringify(ABCBridge.loadSynth(\(midiTranspose), \(program)))"
-        ) as? String,
-              let data = json.data(using: .utf8) else {
-            throw BridgeError.badResponse
-        }
-        let result = try JSONDecoder().decode(SimpleResult.self, from: data)
-        if !result.ok { throw BridgeError.synthFailed(result.error ?? "Synth load failed") }
+        let result = try await evalAsyncJSON("ABCBridge.loadSynth(\(midiTranspose), \(program))")
+        try Self.requireOK(result, context: "loadSynth")
     }
 
     func play() async throws {
         try await waitUntilReady()
-        guard let json = try await jsQueue.eval("JSON.stringify(ABCBridge.play())") as? String,
-              let data = json.data(using: .utf8) else {
-            throw BridgeError.badResponse
+        let result = try await evalAsyncJSON("ABCBridge.play()")
+        try Self.requireOK(result, context: "play")
+        BridgeDiagnostics.log("play OK")
+    }
+
+    private func evalAsyncJSON(_ call: String) async throws -> [String: Any] {
+        let body = "return JSON.stringify(await \(call));"
+        let value = try await jsQueue.evalAsync(body)
+        if let json = value as? String,
+           let data = json.data(using: .utf8),
+           let obj = try JSONSerialization.jsonObject(with: data) as? [String: Any] {
+            return obj
         }
-        let result = try JSONDecoder().decode(SimpleResult.self, from: data)
-        if !result.ok { throw BridgeError.synthFailed(result.error ?? "Playback failed") }
+        if let obj = value as? [String: Any] { return obj }
+        BridgeDiagnostics.log("evalAsyncJSON unexpected: \(String(describing: value))")
+        throw BridgeError.badResponse
     }
 
     func stop() async throws {
         try await waitUntilReady()
         _ = try await jsQueue.eval("ABCBridge.stop()")
     }
+
+    private static func requireOK(_ dict: [String: Any], context: String) throws {
+        let ok = dict["ok"] as? Bool ?? false
+        if !ok {
+            let err = dict["error"] as? String ?? "\(context) failed"
+            BridgeDiagnostics.log("\(context): \(err)")
+            throw BridgeError.synthFailed(err)
+        }
+    }
 }
 
 extension ABCBridge: WKNavigationDelegate {
+    func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
+        BridgeDiagnostics.log("WebView didFinish")
+    }
+
     func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
+        BridgeDiagnostics.log("didFail: \(error.localizedDescription)")
         appendJSError("Navigation failed: \(error.localizedDescription)")
     }
 
     func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
+        BridgeDiagnostics.log("didFailProvisional: \(error.localizedDescription)")
         appendJSError("Load failed: \(error.localizedDescription)")
-        failReady(BridgeError.missingBridgeHTML)
+        failAllWaiters(BridgeError.missingBridgeHTML)
     }
 }
 

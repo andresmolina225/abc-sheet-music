@@ -10,8 +10,15 @@ struct ContentView: View {
             HSplitView {
                 editorPane
                     .frame(minWidth: 280, idealWidth: 360, maxWidth: 520)
-                ScoreWebView(bridge: state.bridge)
-                    .frame(minWidth: 400)
+                Group {
+                    if let bridge = state.bridge {
+                        ScoreWebView(bridge: bridge)
+                    } else {
+                        ProgressView("Loading abcjs…")
+                            .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    }
+                }
+                .frame(minWidth: 400)
             }
             Divider()
             statusBar
@@ -20,7 +27,10 @@ struct ContentView: View {
         .onReceive(NotificationCenter.default.publisher(for: .abcPlaybackFinished)) { _ in
             state.isPlaying = false
         }
-        .task { await state.startIfNeeded() }
+        .task {
+            guard !CommandLine.arguments.contains("--self-test") else { return }
+            await state.startIfNeeded()
+        }
     }
 
     private var toolbar: some View {
@@ -56,6 +66,7 @@ struct ContentView: View {
             } label: {
                 Label(state.isPlaying ? "Stop" : "Play", systemImage: state.isPlaying ? "stop.fill" : "play.fill")
             }
+            .disabled(state.bridge == nil)
             .keyboardShortcut(" ", modifiers: [])
             .help(state.audioSupported
                   ? "Play (concert pitch · downloads soundfont on first play)"

@@ -15,14 +15,13 @@ final class AppState: ObservableObject {
     @Published var isPlaying = false
     @Published var bridgeSignature = "abcjs…"
     @Published var audioSupported = false
-
-    lazy var bridge = ABCBridge()
+    @Published private(set) var bridge: ABCBridge?
 
     private var didBootstrap = false
     private var renderTask: Task<Void, Never>?
     private let defaults = UserDefaults.standard
     private let abcKey = "abc-sheet-swift-abc"
-    private let instKey = "abc-sheet-swift-inst"
+    private let instKey = "abc-sheet-inst-v8"
 
     init() {
         if let raw = defaults.string(forKey: instKey), let inst = Instrument(rawValue: raw) {
@@ -33,12 +32,16 @@ final class AppState: ObservableObject {
     func startIfNeeded() async {
         guard !didBootstrap else { return }
         didBootstrap = true
+        bridge = ABCBridge()
         await bootstrap()
     }
 
     private func bootstrap() async {
+        guard let bridge else { return }
         do {
-            try await bridge.waitUntilReady()
+            try await withTimeout(seconds: 20) {
+                try await bridge.waitUntilReady()
+            }
             bridgeSignature = bridge.signature
             audioSupported = bridge.audioSupported
             if let saved = defaults.string(forKey: abcKey), saved.contains("Coker Pattern") {
@@ -52,12 +55,13 @@ final class AppState: ObservableObject {
                 await generateCoker()
             }
         } catch {
-            warnings = [error.localizedDescription]
+            warnings = [error.localizedDescription] + (bridge.jsErrors)
+            BridgeDiagnostics.log("bootstrap failed: \(error)")
         }
     }
 
     func scheduleRender() {
-        guard liveRender else { return }
+        guard liveRender, bridge != nil else { return }
         renderTask?.cancel()
         renderTask = Task {
             try? await Task.sleep(nanoseconds: 280_000_000)
@@ -67,6 +71,7 @@ final class AppState: ObservableObject {
     }
 
     func renderNow() async {
+        guard let bridge else { return }
         title = ABCUtilities.parseTitle(abcText)
         guard !abcText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             warnings = []
@@ -75,16 +80,6 @@ final class AppState: ObservableObject {
         do {
             let result = try await bridge.render(abcText, measuresPerLine: measuresPerLine)
             var msgs = result.warnings
-            if result.hasVisual {
-                do {
-                    try await bridge.loadSynth(
-                        midiTranspose: instrument.midiTranspose,
-                        program: instrument.midiProgram
-                    )
-                } catch {
-                    msgs.append("Synth: \(error.localizedDescription)")
-                }
-            }
             msgs.append(contentsOf: bridge.jsErrors)
             warnings = msgs
             defaults.set(abcText, forKey: abcKey)
@@ -94,6 +89,7 @@ final class AppState: ObservableObject {
     }
 
     func generateCoker() async {
+        guard let bridge else { return }
         isCokerTune = true
         measuresPerLine = 1
         do {
@@ -107,17 +103,14 @@ final class AppState: ObservableObject {
 
     func instrumentChanged() async {
         defaults.set(instrument.rawValue, forKey: instKey)
-        if isCokerTune {
-            await generateCoker()
-        } else {
-            await renderNow()
-        }
+        if isCokerTune { await generateCoker() }
+        else { await renderNow() }
     }
 
     func play() async {
+        guard let bridge else { return }
         isPlaying = true
         do {
-            // Ensure synth is loaded (soundfont fetch needs network on first Play)
             try await bridge.loadSynth(
                 midiTranspose: instrument.midiTranspose,
                 program: instrument.midiProgram
@@ -126,11 +119,12 @@ final class AppState: ObservableObject {
         } catch {
             warnings = [error.localizedDescription] + bridge.jsErrors
             isPlaying = false
+            BridgeDiagnostics.log("play failed: \(error)")
         }
     }
 
     func stop() async {
-        try? await bridge.stop()
+        try? await bridge?.stop()
         isPlaying = false
     }
 
@@ -140,12 +134,11 @@ final class AppState: ObservableObject {
         if let abc = UTType(filenameExtension: "abc") { types.append(abc) }
         panel.allowedContentTypes = types
         panel.allowsMultipleSelection = false
-        if panel.runModal() == .OK, let url = panel.url {
-            if let text = try? String(contentsOf: url, encoding: .utf8) {
-                isCokerTune = false
-                abcText = text
-                Task { await renderNow() }
-            }
+        if panel.runModal() == .OK, let url = panel.url,
+           let text = try? String(contentsOf: url, encoding: .utf8) {
+            isCokerTune = false
+            abcText = text
+            Task { await renderNow() }
         }
     }
 
@@ -163,5 +156,17 @@ final class AppState: ObservableObject {
             .filter { !$0.isEmpty }
             .joined(separator: "_")
         return cleaned.isEmpty ? "tune" : cleaned
+    }
+}
+
+private func withTimeout(seconds: Double, operation: @escaping () async throws -> Void) async throws {
+    try await withThrowingTaskGroup(of: Void.self) { group in
+        group.addTask { try await operation() }
+        group.addTask {
+            try await Task.sleep(nanoseconds: UInt64(seconds * 1_000_000_000))
+            throw BridgeError.timeout
+        }
+        try await group.next()
+        group.cancelAll()
     }
 }

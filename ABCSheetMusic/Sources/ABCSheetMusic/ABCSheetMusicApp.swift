@@ -2,6 +2,15 @@ import SwiftUI
 
 @main
 struct ABCSheetMusicApp: App {
+    init() {
+        if CommandLine.arguments.contains("--self-test") {
+            Task { @MainActor in
+                await BridgeSelfTest.run()
+                NSApp.terminate(nil)
+            }
+        }
+    }
+
     var body: some Scene {
         WindowGroup {
             ContentView()
