@@ -20,15 +20,15 @@ struct ABCSheetMusicApp: App {
         .defaultSize(width: 1200, height: 800)
         .commands {
             CommandGroup(replacing: .newItem) {
-                Button("Generate Coker Cycle") {
-                    NotificationCenter.default.post(name: .generateCoker, object: nil)
+                Button("12 Keys") {
+                    NotificationCenter.default.post(name: .generate12Keys, object: nil)
                 }
-                .keyboardShortcut("g", modifiers: [.command, .shift])
+                .keyboardShortcut("k", modifiers: [.command, .shift])
             }
         }
     }
 }
 
 extension Notification.Name {
-    static let generateCoker = Notification.Name("generateCoker")
+    static let generate12Keys = Notification.Name("generate12Keys")
 }

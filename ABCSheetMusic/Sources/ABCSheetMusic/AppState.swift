@@ -5,25 +5,29 @@ import UniformTypeIdentifiers
 
 @MainActor
 final class AppState: ObservableObject {
-    @Published var abcText = ""
     @Published var warnings: [String] = []
     @Published var title = "—"
     @Published var instrument: Instrument = .tenor
     @Published var measuresPerLine = 1
     @Published var liveRender = true
-    @Published var isCokerTune = true
+    @Published var isTwelveKeys = false
     @Published var isPlaying = false
     @Published var bridgeSignature = "abcjs…"
     @Published var audioSupported = false
     @Published private(set) var bridge: ABCBridge?
     @Published private(set) var isBootstrapping = true
+    /// Bump to push new text into the editor (12 Keys, open file, etc.).
+    @Published private(set) var editorRevision = 0
+    private(set) var programmaticEditorText = ""
 
     private var didBootstrap = false
-    private var userHasEdited = false
+    private var lastConcertABC = ""
+    private var twelveKeysTemplate: String?
+    private var twelveKeysScoreABC: String?
     private var renderTask: Task<Void, Never>?
     private let defaults = UserDefaults.standard
-    private let abcKey = "abc-sheet-swift-abc-v9"
-    private let instKey = "abc-sheet-inst-v9"
+    private let abcKey = "abc-sheet-swift-abc-v10"
+    private let instKey = "abc-sheet-inst-v10"
 
     init() {
         if let raw = defaults.string(forKey: instKey), let inst = Instrument(rawValue: raw) {
@@ -48,16 +52,12 @@ final class AppState: ObservableObject {
             audioSupported = bridge.audioSupported
             if let saved = defaults.string(forKey: abcKey), !saved.isEmpty {
                 let fixed = ABCUtilities.fixRhythmBarlines(saved)
-                isCokerTune = ABCUtilities.isCokerABC(fixed)
-                userHasEdited = !isCokerTune
-                abcText = fixed
-                if isCokerTune, ABCUtilities.needsRhythmFix(saved) || !saved.contains("K:none") {
-                    await generateCoker()
-                } else {
-                    await renderNow()
-                }
+                pushEditorContent(fixed, editedByUser: true)
+                await renderNow(concertABC: fixed)
             } else {
-                await generateCoker()
+                let starter = ABCUtilities.fixRhythmBarlines(ABCUtilities.defaultTestABC)
+                pushEditorContent(starter, editedByUser: false)
+                await renderNow(concertABC: starter)
             }
         } catch {
             warnings = [error.localizedDescription] + (bridge.jsErrors)
@@ -66,62 +66,93 @@ final class AppState: ObservableObject {
         isBootstrapping = false
     }
 
-    func userEditedABC() {
-        userHasEdited = true
-        isCokerTune = ABCUtilities.isCokerABC(abcText)
-        scheduleRender()
+    /// Editor text is always concert pitch — instrument transposition applies only to the score.
+    func userEdited(concertABC: String) {
+        let fixed = ABCUtilities.fixRhythmBarlines(concertABC)
+        lastConcertABC = fixed
+        isTwelveKeys = false
+        twelveKeysTemplate = nil
+        twelveKeysScoreABC = nil
+        scheduleRender(concertABC: fixed)
     }
 
-    func scheduleRender() {
+    func scheduleRender(concertABC: String) {
         guard liveRender, bridge != nil else { return }
         renderTask?.cancel()
         renderTask = Task {
             try? await Task.sleep(nanoseconds: 280_000_000)
             guard !Task.isCancelled else { return }
-            await renderNow()
+            await renderNow(concertABC: concertABC)
         }
     }
 
-    func renderNow() async {
+    /// Draw the score on the right. Editor text stays in concert pitch.
+    func renderNow(concertABC: String) async {
         guard let bridge else { return }
-        let toRender = ABCUtilities.fixRhythmBarlines(abcText)
-        title = ABCUtilities.parseTitle(toRender)
-        guard !toRender.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
+        let concert = ABCUtilities.fixRhythmBarlines(concertABC)
+        lastConcertABC = concert
+        title = ABCUtilities.parseTitle(concert)
+        guard !concert.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             warnings = []
             return
         }
         do {
+            let toRender: String
+            if isTwelveKeys, let expanded = twelveKeysScoreABC {
+                toRender = expanded
+            } else {
+                toRender = try await scoreABC(from: concert)
+            }
             let result = try await bridge.render(toRender, measuresPerLine: measuresPerLine)
             var msgs = result.warnings
             msgs.append(contentsOf: bridge.jsErrors)
             warnings = msgs
-            defaults.set(abcText, forKey: abcKey)
+            defaults.set(concert, forKey: abcKey)
         } catch {
             warnings = [error.localizedDescription] + bridge.jsErrors
         }
     }
 
-    func generateCoker() async {
+    private func scoreABC(from concert: String) async throws -> String {
+        guard let bridge, instrument.transposeSteps != 0 else { return concert }
+        var out = try await bridge.transpose(concert, steps: instrument.transposeSteps)
+        out = try await ABCUtilities.fitWrittenRange(out, range: instrument.writtenRange) { abc, steps in
+            try await bridge.transpose(abc, steps: steps)
+        }
+        return out
+    }
+
+    func generate12Keys(from concertABC: String) async {
         guard let bridge else { return }
-        isCokerTune = true
-        userHasEdited = false
+        let template = ABCUtilities.fixRhythmBarlines(concertABC)
+        twelveKeysTemplate = template
+        isTwelveKeys = true
         measuresPerLine = 1
+        lastConcertABC = template
         do {
-            let gen = CokerGenerator(bridge: bridge)
-            abcText = try await gen.generate(for: instrument)
-            await renderNow()
+            let gen = Keys12Generator(bridge: bridge)
+            twelveKeysScoreABC = try await gen.generate(from: template, for: instrument)
+            title = "12 Keys (\(instrument.shortName))"
+            await renderNow(concertABC: template)
         } catch {
             warnings = [error.localizedDescription]
         }
     }
 
-    func instrumentChanged() async {
+    func instrumentChanged(concertABC: String) async {
         defaults.set(instrument.rawValue, forKey: instKey)
-        if isCokerTune, !userHasEdited {
-            await generateCoker()
+        if isTwelveKeys, let template = twelveKeysTemplate {
+            await generate12Keys(from: template)
         } else {
-            await renderNow()
+            await renderNow(concertABC: concertABC)
         }
+    }
+
+    func pushEditorContent(_ text: String, editedByUser: Bool) {
+        let fixed = ABCUtilities.fixRhythmBarlines(text)
+        programmaticEditorText = fixed
+        lastConcertABC = fixed
+        editorRevision += 1
     }
 
     func play() async {
@@ -153,10 +184,12 @@ final class AppState: ObservableObject {
         panel.allowsMultipleSelection = false
         if panel.runModal() == .OK, let url = panel.url,
            let text = try? String(contentsOf: url, encoding: .utf8) {
-            userHasEdited = true
-            isCokerTune = ABCUtilities.isCokerABC(text)
-            abcText = ABCUtilities.fixRhythmBarlines(text)
-            Task { await renderNow() }
+            let fixed = ABCUtilities.fixRhythmBarlines(text)
+            isTwelveKeys = false
+            twelveKeysTemplate = nil
+            twelveKeysScoreABC = nil
+            pushEditorContent(fixed, editedByUser: true)
+            Task { await renderNow(concertABC: fixed) }
         }
     }
 
@@ -165,7 +198,7 @@ final class AppState: ObservableObject {
         panel.allowedContentTypes = [UTType(filenameExtension: "abc") ?? .plainText]
         panel.nameFieldStringValue = sanitizedFilename(from: title) + ".abc"
         if panel.runModal() == .OK, let url = panel.url {
-            try? abcText.write(to: url, atomically: true, encoding: .utf8)
+            try? lastConcertABC.write(to: url, atomically: true, encoding: .utf8)
         }
     }
 

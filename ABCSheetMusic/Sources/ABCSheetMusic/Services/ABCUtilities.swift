@@ -1,6 +1,35 @@
 import Foundation
 
 enum ABCUtilities {
+    static let defaultTestABC = """
+        X:1
+        T:Test Pattern - One Key (C)
+        M:4/4
+        L:1/8
+        Q:1/4=88
+        K:C
+        (3 C E G (3 c G E C4 |
+        """
+
+    private static let keySemitones: [String: Int] = [
+        "C": 0, "Db": 1, "D": 2, "Eb": 3, "E": 4, "F": 5,
+        "Gb": 6, "G": 7, "Ab": 8, "A": 9, "Bb": 10, "B": 11,
+    ]
+
+    static func semitoneOffset(from source: String, to target: String) -> Int {
+        let f = keySemitones[source] ?? 0
+        let t = keySemitones[target] ?? 0
+        return (t - f + 12) % 12
+    }
+
+    /// First measure body (no barlines) for 12-keys expansion.
+    static func firstBarBody(from abc: String) -> String? {
+        let raw = notesFromAbc(abc)
+        guard !raw.isEmpty else { return nil }
+        let bar = raw.components(separatedBy: "|").first?.trimmingCharacters(in: .whitespaces) ?? ""
+        return bar.isEmpty ? nil : bar
+    }
+
     static func miniAbc(key: String, body: String) -> String {
         ["X:1", "M:4/4", "L:1/8", "Q:1/4=88", "K:\(key)", body].joined(separator: "\n")
     }

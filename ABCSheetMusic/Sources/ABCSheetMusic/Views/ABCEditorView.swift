@@ -4,7 +4,7 @@ import SwiftUI
 /// Monospaced ABC editor — NSTextView stays first responder; never overwritten while typing.
 struct ABCEditorView: NSViewRepresentable {
     @Binding var text: String
-    var onEdit: () -> Void
+    var onEdit: (String) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
 
@@ -73,8 +73,9 @@ struct ABCEditorView: NSViewRepresentable {
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
             isApplyingEdit = true
-            parent.text = textView.string
-            parent.onEdit()
+            let value = textView.string
+            parent.text = value
+            parent.onEdit(value)
             isApplyingEdit = false
         }
     }
