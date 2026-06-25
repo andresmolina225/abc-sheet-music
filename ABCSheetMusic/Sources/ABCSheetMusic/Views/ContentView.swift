@@ -1,27 +1,27 @@
-import AppKit
 import SwiftUI
 
 struct ContentView: View {
     @StateObject private var state = AppState()
-    @State private var editorText = ABCUtilities.defaultTestABC
-    @State private var editorScrollRef: NSScrollView?
 
     var body: some View {
         VStack(spacing: 0) {
             toolbar
             Divider()
-            HSplitView {
-                editorPane
-                    .frame(minWidth: 300, idealWidth: 380, maxWidth: 560)
-                Group {
-                    if let bridge = state.bridge {
-                        ScoreWebView(bridge: bridge)
-                    } else {
-                        ProgressView("Loading abcjs…")
-                            .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    }
-                }
-                .frame(minWidth: 400)
+            if let bridge = state.bridge {
+                WorkspaceSplitView(bridge: bridge, editor: state.editor)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else {
+                ProgressView("Loading abcjs…")
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+            if !state.warnings.isEmpty {
+                Divider()
+                Text(state.warnings.joined(separator: "\n"))
+                    .font(.system(.caption, design: .monospaced))
+                    .foregroundStyle(.red)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(8)
+                    .background(Color.red.opacity(0.06))
             }
             Divider()
             statusBar
@@ -31,16 +31,10 @@ struct ContentView: View {
             state.isPlaying = false
         }
         .onReceive(NotificationCenter.default.publisher(for: .generate12Keys)) { _ in
-            Task { await updateScore() }
-        }
-        .onChange(of: state.editorRevision) { _ in
-            editorText = state.programmaticEditorText
-            if let tv = editorScrollRef?.documentView as? NSTextView {
-                tv.string = state.programmaticEditorText
-            }
+            Task { await state.generate12Keys() }
         }
         .onChange(of: state.liveRender) { enabled in
-            if enabled { Task { await updateScore() } }
+            if enabled { Task { await state.renderNow(concertABC: state.editor.liveText()) } }
         }
         .task {
             guard !CommandLine.arguments.contains("--self-test") else { return }
@@ -48,18 +42,14 @@ struct ContentView: View {
         }
     }
 
-    private func liveEditorText() -> String {
-        ABCEditorView.currentText(in: editorScrollRef) ?? editorText
-    }
-
-    private func updateScore() async {
-        await state.renderNow(concertABC: liveEditorText())
-    }
-
     private var toolbar: some View {
         HStack(spacing: 12) {
             Label("ABC Sheet Music", systemImage: "music.note.list")
                 .font(.headline)
+
+            if state.isBootstrapping {
+                ProgressView().controlSize(.small)
+            }
 
             Divider().frame(height: 22)
 
@@ -71,20 +61,19 @@ struct ContentView: View {
             .pickerStyle(.menu)
             .frame(width: 240)
             .onChange(of: state.instrument) { _ in
-                Task { await state.instrumentChanged(concertABC: liveEditorText()) }
+                Task { await state.instrumentChanged() }
             }
 
             Button("12 Keys") {
-                Task { await state.generate12Keys(from: liveEditorText()) }
+                Task { await state.generate12Keys() }
             }
-            .help("Add missing chromatic keys using your first bar — keeps clean key signatures")
 
             Divider().frame(height: 22)
 
             Button {
                 Task {
                     if state.isPlaying { await state.stop() }
-                    else { await state.play(concertABC: liveEditorText()) }
+                    else { await state.play() }
                 }
             } label: {
                 Label(state.isPlaying ? "Stop" : "Play", systemImage: state.isPlaying ? "stop.fill" : "play.fill")
@@ -92,14 +81,13 @@ struct ContentView: View {
             .disabled(state.bridge == nil)
 
             Button("Update Score") {
-                Task { await updateScore() }
+                Task { await state.renderNow(concertABC: state.editor.liveText()) }
             }
             .keyboardShortcut(.return, modifiers: .command)
 
             Toggle(isOn: $state.liveRender) {
                 Text("Auto-update")
             }
-            .help("When ON: score refreshes ~¼ sec after you stop typing. When OFF: use Update Score.")
 
             Picker("Layout", selection: $state.measuresPerLine) {
                 Text("1 / line").tag(1)
@@ -109,7 +97,7 @@ struct ContentView: View {
             .pickerStyle(.menu)
             .frame(width: 90)
             .onChange(of: state.measuresPerLine) { _ in
-                Task { await updateScore() }
+                Task { await state.renderNow(concertABC: state.editor.liveText()) }
             }
 
             Spacer()
@@ -122,70 +110,18 @@ struct ContentView: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 
-    private var editorPane: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack {
-                Text("ABC NOTATION")
-                    .font(.caption.weight(.bold))
-                    .foregroundStyle(.secondary)
-                Spacer()
-                Text("Concert pitch")
-                    .font(.caption2)
-                    .padding(.horizontal, 8)
-                    .padding(.vertical, 3)
-                    .background(Color.accentColor.opacity(0.15))
-                    .clipShape(RoundedRectangle(cornerRadius: 5))
-            }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-
-            Text("Concert ABC here · score + sound use \(state.instrument.shortName) written pitch")
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-                .padding(.horizontal, 12)
-                .padding(.bottom, 6)
-
-            Divider()
-
-            ZStack(alignment: .topLeading) {
-                ABCEditorView(text: $editorText, scrollRef: $editorScrollRef) { text in
-                    state.userEdited(concertABC: text)
-                }
-                .id("abc-editor")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-                if state.isBootstrapping {
-                    Color(nsColor: .textBackgroundColor).opacity(0.7)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                    ProgressView("Loading…")
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                }
-            }
-            .frame(minHeight: 240)
-
-            if !state.warnings.isEmpty {
-                Divider()
-                ScrollView {
-                    Text(state.warnings.joined(separator: "\n"))
-                        .font(.system(.caption, design: .monospaced))
-                        .foregroundStyle(.red)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                }
-                .frame(maxHeight: 90)
-                .background(Color.red.opacity(0.06))
-            }
-        }
-    }
-
     private var statusBar: some View {
         HStack {
             Text("abcjs \(state.bridgeSignature)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
-            Text(state.liveRender ? "· Auto-update ON" : "· Auto-update OFF — press Update Score")
+            Text(state.liveRender ? "· Auto-update ON" : "· Auto-update OFF")
                 .font(.caption)
                 .foregroundStyle(state.liveRender ? .green : .orange)
+            Text("· \(state.lastRenderNote)")
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .lineLimit(1)
             Spacer()
             Text(state.title)
                 .font(.caption.weight(.medium))

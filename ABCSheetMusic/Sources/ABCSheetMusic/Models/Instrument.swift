@@ -46,8 +46,16 @@ enum Instrument: String, CaseIterable, Identifiable, Codable {
         }
     }
 
-    /// Playback offset so audio stays at concert pitch.
-    var midiTranspose: Int { -transposeSteps }
+    /// Extra octave shift on score after instrument transpose (tenor reads too high).
+    var displayOctaveShift: Int? {
+        switch self {
+        case .tenor: return -12
+        default: return nil
+        }
+    }
+
+    /// Synth playback shift — score is already written pitch; 0 = play what you see.
+    var playbackMidiShift: Int { 0 }
 
     var midiProgram: Int {
         switch self {

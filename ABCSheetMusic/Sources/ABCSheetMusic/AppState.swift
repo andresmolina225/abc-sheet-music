@@ -13,21 +13,25 @@ final class AppState: ObservableObject {
     @Published var isPlaying = false
     @Published var bridgeSignature = "abcjs…"
     @Published var audioSupported = false
+    @Published var lastRenderNote = ""
     @Published private(set) var bridge: ABCBridge?
     @Published private(set) var isBootstrapping = true
-    @Published private(set) var editorRevision = 0
-    private(set) var programmaticEditorText = ""
+
+    let editor = EditorController()
 
     private var didBootstrap = false
     private var lastConcertABC = ""
     private var renderTask: Task<Void, Never>?
     private let defaults = UserDefaults.standard
-    private let abcKey = "abc-sheet-swift-abc-v12"
-    private let instKey = "abc-sheet-inst-v12"
+    private let abcKey = "abc-sheet-swift-abc-v13"
+    private let instKey = "abc-sheet-inst-v13"
 
     init() {
         if let raw = defaults.string(forKey: instKey), let inst = Instrument(rawValue: raw) {
             instrument = inst
+        }
+        editor.onTextChange = { [weak self] text in
+            self?.userEdited(concertABC: text)
         }
     }
 
@@ -40,21 +44,21 @@ final class AppState: ObservableObject {
 
     private func bootstrap() async {
         guard let bridge else { return }
+        isBootstrapping = true
         do {
             try await withTimeout(seconds: 20) {
                 try await bridge.waitUntilReady()
             }
             bridgeSignature = bridge.signature
             audioSupported = bridge.audioSupported
+            let initial: String
             if let saved = defaults.string(forKey: abcKey), !saved.isEmpty {
-                let fixed = ABCUtilities.fixRhythmBarlines(saved)
-                pushEditorContent(fixed)
-                await renderNow(concertABC: fixed)
+                initial = ABCUtilities.fixRhythmBarlines(saved)
             } else {
-                let starter = ABCUtilities.fixRhythmBarlines(ABCUtilities.defaultTestABC)
-                pushEditorContent(starter)
-                await renderNow(concertABC: starter)
+                initial = ABCUtilities.fixRhythmBarlines(ABCUtilities.defaultTestABC)
             }
+            editor.setProgrammatically(initial)
+            await renderNow(concertABC: initial)
         } catch {
             warnings = [error.localizedDescription] + (bridge.jsErrors)
             BridgeDiagnostics.log("bootstrap failed: \(error)")
@@ -63,10 +67,9 @@ final class AppState: ObservableObject {
     }
 
     func userEdited(concertABC: String) {
-        let fixed = ABCUtilities.fixRhythmBarlines(concertABC)
-        lastConcertABC = fixed
+        lastConcertABC = concertABC
         guard liveRender else { return }
-        scheduleRender(concertABC: fixed)
+        scheduleRender(concertABC: concertABC)
     }
 
     func scheduleRender(concertABC: String) {
@@ -81,12 +84,16 @@ final class AppState: ObservableObject {
     }
 
     func renderNow(concertABC: String) async {
-        guard let bridge else { return }
+        guard let bridge else {
+            lastRenderNote = "Bridge not ready"
+            return
+        }
         let concert = ABCUtilities.fixRhythmBarlines(concertABC)
         lastConcertABC = concert
         title = ABCUtilities.parseTitle(concert)
         guard !concert.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else {
             warnings = []
+            lastRenderNote = "Empty ABC"
             return
         }
         do {
@@ -96,54 +103,59 @@ final class AppState: ObservableObject {
             msgs.append(contentsOf: bridge.jsErrors)
             warnings = msgs
             defaults.set(concert, forKey: abcKey)
+            lastRenderNote = "Rendered \(instrument.shortName) · \(Date().formatted(date: .omitted, time: .standard))"
+            BridgeDiagnostics.log("render OK \(instrument.shortName)")
         } catch {
             warnings = [error.localizedDescription] + bridge.jsErrors
+            lastRenderNote = "Render failed"
+            BridgeDiagnostics.log("render FAIL: \(error)")
         }
     }
 
     private func scoreABC(from concert: String) async throws -> String {
         guard let bridge, instrument.transposeSteps != 0 else { return concert }
         var out = try await bridge.transpose(concert, steps: instrument.transposeSteps)
+        if let extra = instrument.displayOctaveShift {
+            out = try await bridge.transpose(out, steps: extra)
+        }
         out = try await ABCUtilities.fitWrittenRange(out, range: instrument.writtenRange) { abc, steps in
             try await bridge.transpose(abc, steps: steps)
         }
         return out
     }
 
-    func generate12Keys(from concertABC: String) async {
+    func generate12Keys() async {
         guard let bridge else { return }
         measuresPerLine = 1
+        let source = editor.liveText()
         do {
             let gen = Keys12Generator(bridge: bridge)
-            let merged = try await gen.complete(from: concertABC)
-            pushEditorContent(merged)
+            let merged = try await gen.complete(from: source)
+            editor.setProgrammatically(merged)
             await renderNow(concertABC: merged)
         } catch {
             warnings = [error.localizedDescription]
         }
     }
 
-    func instrumentChanged(concertABC: String) async {
+    func instrumentChanged() async {
         defaults.set(instrument.rawValue, forKey: instKey)
-        await renderNow(concertABC: concertABC)
+        await renderNow(concertABC: editor.liveText())
     }
 
-    func pushEditorContent(_ text: String) {
-        let fixed = ABCUtilities.fixRhythmBarlines(text)
-        programmaticEditorText = fixed
-        lastConcertABC = fixed
-        editorRevision += 1
-    }
-
-    /// Render latest editor text, then play what you see (written pitch on score).
-    func play(concertABC: String) async {
+    func play() async {
         guard let bridge else { return }
         isPlaying = true
-        await renderNow(concertABC: concertABC)
+        let concert = editor.liveText()
         do {
-            // Score is already transposed for instrument — midiTranspose 0 plays those pitches.
-            try await bridge.loadSynth(midiTranspose: 0, program: instrument.midiProgram)
+            try await bridge.stop()
+            await renderNow(concertABC: concert)
+            try await bridge.loadSynth(
+                midiTranspose: instrument.playbackMidiShift,
+                program: instrument.midiProgram
+            )
             try await bridge.play()
+            lastRenderNote = "Playing \(instrument.shortName)"
         } catch {
             warnings = [error.localizedDescription] + bridge.jsErrors
             isPlaying = false
@@ -165,7 +177,7 @@ final class AppState: ObservableObject {
         if panel.runModal() == .OK, let url = panel.url,
            let text = try? String(contentsOf: url, encoding: .utf8) {
             let fixed = ABCUtilities.fixRhythmBarlines(text)
-            pushEditorContent(fixed)
+            editor.setProgrammatically(fixed)
             Task { await renderNow(concertABC: fixed) }
         }
     }
@@ -175,7 +187,7 @@ final class AppState: ObservableObject {
         panel.allowedContentTypes = [UTType(filenameExtension: "abc") ?? .plainText]
         panel.nameFieldStringValue = sanitizedFilename(from: title) + ".abc"
         if panel.runModal() == .OK, let url = panel.url {
-            try? lastConcertABC.write(to: url, atomically: true, encoding: .utf8)
+            try? editor.liveText().write(to: url, atomically: true, encoding: .utf8)
         }
     }
 

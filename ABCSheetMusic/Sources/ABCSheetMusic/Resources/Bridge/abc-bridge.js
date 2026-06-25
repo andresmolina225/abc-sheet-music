@@ -148,6 +148,7 @@
         var objs = ABCJS.renderAbc("paper", abc, renderParams(measuresPerLine));
         lastVisualObj = objs[0] || null;
         synthReady = false;
+        if (synthControl) synthControl.pause();
         objs.forEach(function (o, i) {
           (o.warnings || []).forEach(function (w) {
             warnings.push("Tune " + (i + 1) + ": " + w.message);
