@@ -22,8 +22,8 @@ final class AppState: ObservableObject {
     private var lastConcertABC = ""
     private var renderTask: Task<Void, Never>?
     private let defaults = UserDefaults.standard
-    private let abcKey = "abc-sheet-swift-abc-v11"
-    private let instKey = "abc-sheet-inst-v11"
+    private let abcKey = "abc-sheet-swift-abc-v12"
+    private let instKey = "abc-sheet-inst-v12"
 
     init() {
         if let raw = defaults.string(forKey: instKey), let inst = Instrument(rawValue: raw) {
@@ -65,20 +65,21 @@ final class AppState: ObservableObject {
     func userEdited(concertABC: String) {
         let fixed = ABCUtilities.fixRhythmBarlines(concertABC)
         lastConcertABC = fixed
-        if liveRender { scheduleRender(concertABC: fixed) }
+        guard liveRender else { return }
+        scheduleRender(concertABC: fixed)
     }
 
     func scheduleRender(concertABC: String) {
         guard bridge != nil else { return }
         renderTask?.cancel()
+        let snapshot = concertABC
         renderTask = Task {
-            try? await Task.sleep(nanoseconds: 300_000_000)
+            try? await Task.sleep(nanoseconds: 250_000_000)
             guard !Task.isCancelled else { return }
-            await renderNow(concertABC: concertABC)
+            await renderNow(concertABC: snapshot)
         }
     }
 
-    /// Always renders current editor ABC (transposed for instrument on the score).
     func renderNow(concertABC: String) async {
         guard let bridge else { return }
         let concert = ABCUtilities.fixRhythmBarlines(concertABC)
@@ -109,7 +110,6 @@ final class AppState: ObservableObject {
         return out
     }
 
-    /// Add missing chromatic keys using the first bar's pattern; writes result into editor.
     func generate12Keys(from concertABC: String) async {
         guard let bridge else { return }
         measuresPerLine = 1
@@ -135,14 +135,14 @@ final class AppState: ObservableObject {
         editorRevision += 1
     }
 
-    func play() async {
+    /// Render latest editor text, then play what you see (written pitch on score).
+    func play(concertABC: String) async {
         guard let bridge else { return }
         isPlaying = true
+        await renderNow(concertABC: concertABC)
         do {
-            try await bridge.loadSynth(
-                midiTranspose: instrument.midiTranspose,
-                program: instrument.midiProgram
-            )
+            // Score is already transposed for instrument — midiTranspose 0 plays those pitches.
+            try await bridge.loadSynth(midiTranspose: 0, program: instrument.midiProgram)
             try await bridge.play()
         } catch {
             warnings = [error.localizedDescription] + bridge.jsErrors

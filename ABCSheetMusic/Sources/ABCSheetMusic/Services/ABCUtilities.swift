@@ -88,16 +88,18 @@ enum ABCUtilities {
         return (header, bars)
     }
 
-    static func rebuildScore(header: [String], bars: [ABCBar]) -> String {
+    /// Concert-pitch score with clean per-bar key signatures (like original Coker).
+    static func rebuildConcertScore(header: [String], bars: [ABCBar]) -> String {
         var lines = header
         if lines.isEmpty {
-            lines = ["X:1", "M:4/4", "L:1/8", "Q:1/4=88", "K:C"]
+            lines = ["X:1", "T:12 Keys", "M:4/4", "L:1/8", "Q:1/4=88", "%%stretchlast 0.04", "V:1", "K:C"]
+        }
+        if !lines.contains(where: { $0.hasPrefix("%%stretchlast") }) {
+            lines.append("%%stretchlast 0.04")
         }
         for (index, bar) in bars.enumerated() {
-            if index > 0 || !lines.contains(where: { $0.trimmingCharacters(in: .whitespaces).hasPrefix("K:") }) {
-                lines.append("% \(bar.concertKey)")
-                lines.append("[K:\(bar.concertKey)]")
-            }
+            lines.append("% ── \(bar.concertKey) ──")
+            lines.append("[K:\(bar.concertKey)]")
             let end = index == bars.count - 1 ? " ||" : " |"
             lines.append(bar.body + end)
         }

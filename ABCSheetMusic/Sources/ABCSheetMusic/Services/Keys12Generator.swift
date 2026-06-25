@@ -1,6 +1,6 @@
 import Foundation
 
-/// Fills in missing chromatic keys using the pattern from the first bar.
+/// Fills missing chromatic keys at concert pitch with proper [K:…] signatures.
 struct Keys12Generator {
     private let bridge: ABCBridge
 
@@ -39,18 +39,21 @@ struct Keys12Generator {
         let ordered = ABCUtilities.chromaticKeys.compactMap { byKey[$0] }
         if header.isEmpty {
             header = [
-                "X:1",
-                "T:12 Keys",
-                "M:4/4",
-                "L:1/8",
-                "Q:1/4=88",
-                "K:C",
+                "X:1", "T:12 Keys", "C:ABC Sheet Music",
+                "M:4/4", "L:1/8", "Q:1/4=88", "%%stretchlast 0.04", "V:1", "K:C",
             ]
-        } else if let ti = header.firstIndex(where: { $0.hasPrefix("T:") }) {
-            header[ti] = "T:12 Keys"
+        } else {
+            if let ti = header.firstIndex(where: { $0.hasPrefix("T:") }) {
+                header[ti] = "T:12 Keys"
+            }
+            header.removeAll { line in
+                let t = line.trimmingCharacters(in: .whitespaces)
+                return t.hasPrefix("K:") || t.hasPrefix("[K:")
+            }
+            header.append("K:C")
         }
 
-        return ABCUtilities.rebuildScore(header: header, bars: ordered)
+        return ABCUtilities.rebuildConcertScore(header: header, bars: ordered)
     }
 }
 

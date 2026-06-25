@@ -1,13 +1,15 @@
 import AppKit
 import SwiftUI
 
-/// Monospaced ABC editor — isolated from score updates while typing.
+/// Monospaced ABC editor — binding stored on coordinator so Live updates always fire.
 struct ABCEditorView: NSViewRepresentable {
     @Binding var text: String
     var scrollRef: Binding<NSScrollView?>?
     var onEdit: (String) -> Void
 
-    func makeCoordinator() -> Coordinator { Coordinator(onEdit: onEdit) }
+    func makeCoordinator() -> Coordinator {
+        Coordinator(text: $text, onEdit: onEdit)
+    }
 
     func makeNSView(context: Context) -> NSScrollView {
         let scroll = EditorScrollView()
@@ -42,13 +44,13 @@ struct ABCEditorView: NSViewRepresentable {
 
         scroll.documentView = textView
         context.coordinator.textView = textView
-        context.coordinator.onBindingChange = { text = $0 }
         scrollRef?.wrappedValue = scroll
 
         return scroll
     }
 
     func updateNSView(_ scroll: NSScrollView, context: Context) {
+        context.coordinator.text = $text
         context.coordinator.onEdit = onEdit
         scrollRef?.wrappedValue = scroll
         guard let textView = scroll.documentView as? EditorTextView else { return }
@@ -61,26 +63,33 @@ struct ABCEditorView: NSViewRepresentable {
         textView.selectedRanges = selection
     }
 
-    /// Read live text from NSTextView (binding can lag behind keystrokes).
     static func currentText(in scrollView: NSScrollView?) -> String? {
         (scrollView?.documentView as? NSTextView)?.string
     }
 
     final class Coordinator: NSObject, NSTextViewDelegate {
+        var text: Binding<String>
         var onEdit: (String) -> Void
-        var onBindingChange: ((String) -> Void)?
         weak var textView: NSTextView?
         var isApplyingEdit = false
 
-        init(onEdit: @escaping (String) -> Void) {
+        init(text: Binding<String>, onEdit: @escaping (String) -> Void) {
+            self.text = text
             self.onEdit = onEdit
         }
 
         func textDidChange(_ notification: Notification) {
             guard let textView = notification.object as? NSTextView else { return }
-            let value = textView.string
+            publish(textView.string)
+        }
+
+        func textView(_ textView: NSTextView, shouldChangeTextIn affectedCharRange: NSRange, replacementString: String?) -> Bool {
+            true
+        }
+
+        private func publish(_ value: String) {
             isApplyingEdit = true
-            onBindingChange?(value)
+            text.wrappedValue = value
             onEdit(value)
             isApplyingEdit = false
         }

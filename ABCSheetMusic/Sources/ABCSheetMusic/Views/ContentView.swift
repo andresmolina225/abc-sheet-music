@@ -39,6 +39,9 @@ struct ContentView: View {
                 tv.string = state.programmaticEditorText
             }
         }
+        .onChange(of: state.liveRender) { enabled in
+            if enabled { Task { await updateScore() } }
+        }
         .task {
             guard !CommandLine.arguments.contains("--self-test") else { return }
             await state.startIfNeeded()
@@ -74,14 +77,14 @@ struct ContentView: View {
             Button("12 Keys") {
                 Task { await state.generate12Keys(from: liveEditorText()) }
             }
-            .help("Fill missing chromatic keys using your first bar's pattern (e.g. 5 keys → adds 7)")
+            .help("Add missing chromatic keys using your first bar — keeps clean key signatures")
 
             Divider().frame(height: 22)
 
             Button {
                 Task {
                     if state.isPlaying { await state.stop() }
-                    else { await state.play() }
+                    else { await state.play(concertABC: liveEditorText()) }
                 }
             } label: {
                 Label(state.isPlaying ? "Stop" : "Play", systemImage: state.isPlaying ? "stop.fill" : "play.fill")
@@ -92,10 +95,11 @@ struct ContentView: View {
                 Task { await updateScore() }
             }
             .keyboardShortcut(.return, modifiers: .command)
-            .help("Redraw the score from the editor right now")
 
-            Toggle("Live", isOn: $state.liveRender)
-                .help("Auto-update score ~0.3s after you stop typing")
+            Toggle(isOn: $state.liveRender) {
+                Text("Auto-update")
+            }
+            .help("When ON: score refreshes ~¼ sec after you stop typing. When OFF: use Update Score.")
 
             Picker("Layout", selection: $state.measuresPerLine) {
                 Text("1 / line").tag(1)
@@ -135,7 +139,7 @@ struct ContentView: View {
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
 
-            Text("Edit here · score transposes for \(state.instrument.shortName) · 12 Keys fills what's missing")
+            Text("Concert ABC here · score + sound use \(state.instrument.shortName) written pitch")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
                 .padding(.horizontal, 12)
@@ -145,9 +149,9 @@ struct ContentView: View {
 
             ZStack(alignment: .topLeading) {
                 ABCEditorView(text: $editorText, scrollRef: $editorScrollRef) { text in
-                    editorText = text
                     state.userEdited(concertABC: text)
                 }
+                .id("abc-editor")
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
 
                 if state.isBootstrapping {
@@ -179,6 +183,9 @@ struct ContentView: View {
             Text("abcjs \(state.bridgeSignature)")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Text(state.liveRender ? "· Auto-update ON" : "· Auto-update OFF — press Update Score")
+                .font(.caption)
+                .foregroundStyle(state.liveRender ? .green : .orange)
             Spacer()
             Text(state.title)
                 .font(.caption.weight(.medium))
@@ -193,4 +200,3 @@ struct ContentView: View {
         .background(Color(nsColor: .controlBackgroundColor))
     }
 }
-
