@@ -8,8 +8,13 @@ struct ContentView: View {
             toolbar
             Divider()
             if let bridge = state.bridge {
-                WorkspaceSplitView(bridge: bridge, editor: state.editor)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                HSplitView {
+                    EditorOnlyView(editor: state.editor)
+                        .frame(minWidth: 300, idealWidth: 380, maxWidth: 560)
+                    ScoreWebView(bridge: bridge)
+                        .frame(minWidth: 400)
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else {
                 ProgressView("Loading abcjs…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)

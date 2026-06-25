@@ -141,6 +141,21 @@ final class AppState: ObservableObject {
     func instrumentChanged() async {
         defaults.set(instrument.rawValue, forKey: instKey)
         await renderNow(concertABC: editor.liveText())
+        await reloadSynthForInstrument()
+    }
+
+    private func reloadSynthForInstrument() async {
+        guard let bridge else { return }
+        do {
+            try await bridge.stop()
+            try await bridge.loadSynth(
+                midiTranspose: instrument.playbackMidiShift,
+                program: instrument.midiProgram
+            )
+            lastRenderNote = "Synth ready · \(instrument.shortName) (program \(instrument.midiProgram))"
+        } catch {
+            BridgeDiagnostics.log("reloadSynth: \(error)")
+        }
     }
 
     func play() async {
@@ -155,7 +170,7 @@ final class AppState: ObservableObject {
                 program: instrument.midiProgram
             )
             try await bridge.play()
-            lastRenderNote = "Playing \(instrument.shortName)"
+            lastRenderNote = "Playing \(instrument.shortName) · program \(instrument.midiProgram)"
         } catch {
             warnings = [error.localizedDescription] + bridge.jsErrors
             isPlaying = false

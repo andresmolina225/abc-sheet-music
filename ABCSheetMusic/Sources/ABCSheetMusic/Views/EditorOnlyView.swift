@@ -1,28 +1,20 @@
 import AppKit
 import SwiftUI
-import WebKit
 
-/// Native NSSplitView: ABC editor (left) + score WKWebView (right). Avoids SwiftUI HSplitView editor bugs.
-struct WorkspaceSplitView: NSViewRepresentable {
-    let bridge: ABCBridge
+/// Native NSTextView ABC editor — left pane only (score uses ScoreWebView).
+struct EditorOnlyView: NSViewRepresentable {
     @ObservedObject var editor: EditorController
 
     func makeCoordinator() -> Coordinator { Coordinator(editor: editor) }
 
-    func makeNSView(context: Context) -> NSSplitView {
-        let split = NSSplitView()
-        split.isVertical = true
-        split.dividerStyle = .thin
-        split.autosaveName = "ABCSheetMusicWorkspace"
-
-        // ── Left: ABC editor ──
-        let editorScroll = NSScrollView()
-        editorScroll.hasVerticalScroller = true
-        editorScroll.hasHorizontalScroller = false
-        editorScroll.autohidesScrollers = true
-        editorScroll.borderType = .noBorder
-        editorScroll.drawsBackground = true
-        editorScroll.backgroundColor = .textBackgroundColor
+    func makeNSView(context: Context) -> NSScrollView {
+        let scroll = NSScrollView()
+        scroll.hasVerticalScroller = true
+        scroll.hasHorizontalScroller = false
+        scroll.autohidesScrollers = true
+        scroll.borderType = .noBorder
+        scroll.drawsBackground = true
+        scroll.backgroundColor = .textBackgroundColor
 
         let textView = ABCPlainTextView()
         textView.delegate = context.coordinator
@@ -46,48 +38,17 @@ struct WorkspaceSplitView: NSViewRepresentable {
         textView.textContainer?.containerSize = NSSize(width: 0, height: CGFloat.greatestFiniteMagnitude)
         textView.string = editor.storedText
 
-        editorScroll.documentView = textView
-        editorScroll.translatesAutoresizingMaskIntoConstraints = false
-
-        let editorPanel = NSView()
-        editorPanel.translatesAutoresizingMaskIntoConstraints = false
-        editorPanel.addSubview(editorScroll)
-        NSLayoutConstraint.activate([
-            editorScroll.leadingAnchor.constraint(equalTo: editorPanel.leadingAnchor),
-            editorScroll.trailingAnchor.constraint(equalTo: editorPanel.trailingAnchor),
-            editorScroll.topAnchor.constraint(equalTo: editorPanel.topAnchor),
-            editorScroll.bottomAnchor.constraint(equalTo: editorPanel.bottomAnchor),
-        ])
-
-        // ── Right: score ──
-        guard let webView = bridge.webView else { return split }
-        webView.removeFromSuperview()
-        webView.translatesAutoresizingMaskIntoConstraints = false
-        let scorePanel = NSView()
-        scorePanel.translatesAutoresizingMaskIntoConstraints = false
-        scorePanel.addSubview(webView)
-        NSLayoutConstraint.activate([
-            webView.leadingAnchor.constraint(equalTo: scorePanel.leadingAnchor),
-            webView.trailingAnchor.constraint(equalTo: scorePanel.trailingAnchor),
-            webView.topAnchor.constraint(equalTo: scorePanel.topAnchor),
-            webView.bottomAnchor.constraint(equalTo: scorePanel.bottomAnchor),
-        ])
-
-        split.addArrangedSubview(editorPanel)
-        split.addArrangedSubview(scorePanel)
-        split.setPosition(380, ofDividerAt: 0)
-
+        scroll.documentView = textView
         context.coordinator.textView = textView
         editor.textView = textView
 
         DispatchQueue.main.async {
-            editorPanel.window?.makeFirstResponder(textView)
+            scroll.window?.makeFirstResponder(textView)
         }
-
-        return split
+        return scroll
     }
 
-    func updateNSView(_ split: NSSplitView, context: Context) {
+    func updateNSView(_ scroll: NSScrollView, context: Context) {
         editor.textView = context.coordinator.textView
         guard let tv = context.coordinator.textView else { return }
         guard tv.window?.firstResponder !== tv else { return }
@@ -114,7 +75,6 @@ struct WorkspaceSplitView: NSViewRepresentable {
     }
 }
 
-/// Always accepts keyboard — click to focus.
 private final class ABCPlainTextView: NSTextView {
     override var acceptsFirstResponder: Bool { true }
 

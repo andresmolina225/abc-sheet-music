@@ -21,8 +21,10 @@
   }
 
   var synthControl = null;
+  var createSynth = null;
   var lastVisualObj = null;
   var synthReady = false;
+  var lastSynthProgram = -1;
   var audioSupported = ABCJS.synth.supportsAudio();
 
   function CursorControl() {
@@ -172,10 +174,17 @@
       }
       synthReady = false;
       synthControl.disable(true);
-      var opts = { midiTranspose: midiTranspose || 0, program: program || 0 };
+      if (createSynth) {
+        try { createSynth.stop(); } catch (e) { /* ignore */ }
+        createSynth = null;
+      }
+      var prog = program || 0;
+      var opts = { midiTranspose: midiTranspose || 0, program: prog };
+      lastSynthProgram = prog;
       return resumeAudioContext()
         .then(function () {
-          return new ABCJS.synth.CreateSynth().init({ visualObj: lastVisualObj, options: opts });
+          createSynth = new ABCJS.synth.CreateSynth();
+          return createSynth.init({ visualObj: lastVisualObj, options: opts });
         })
         .then(function () {
           return synthControl.setTune(lastVisualObj, false, opts);
@@ -183,7 +192,8 @@
         .then(function () {
           synthControl.disable(false);
           synthReady = true;
-          return { ok: true };
+          postMessage({ type: "log", message: "Synth loaded program " + prog });
+          return { ok: true, program: prog };
         })
         .catch(function (e) {
           synthReady = false;
